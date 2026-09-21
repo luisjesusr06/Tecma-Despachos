@@ -1,0 +1,32 @@
+[
+  {
+    "name": "html5-qrcode",
+    "version": "2.3.8",
+    "file": "html5-qrcode.min.js",
+    "sha256": "660b12437b1d747e3e68b8be0685c08cb728140110ad213f167b14b66f8b1d8e"
+  },
+  {
+    "name": "papaparse",
+    "version": "5.5.3",
+    "file": "papaparse.min.js",
+    "sha256": "3553fb8bdf5b8004ce5531e6827e81c8b34e7b3992677967754544064e97b016"
+  },
+  {
+    "name": "jspdf",
+    "version": "3.0.3",
+    "file": "jspdf.umd.min.js",
+    "sha256": "509a1b5b1f3402b81e28510e46145618373a9cba61c94c119d5e9242a86261e1"
+  },
+  {
+    "name": "jspdf-autotable",
+    "version": "5.0.2",
+    "file": "jspdf.plugin.autotable.min.js",
+    "sha256": "049230c83d6e3ab38e4fe2c4f994b29b7bdb8db812fbd7ab98ea0c844e0851c8"
+  },
+  {
+    "name": "dexie",
+    "version": "4.0.11",
+    "file": "dexie.min.js",
+    "sha256": "7a87c641797015e178fa150f9c9971a0308bece225ee6edd5dd4d7b7582e6e27"
+  }
+]

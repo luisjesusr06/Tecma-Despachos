@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es-CL">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#142e2b">
+  <meta name="description" content="Control de cargas y despachos Tecma. Escaneo, accesorios y documentos por obra, sin conexión.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Tecma">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Tecma · Despachos</title>
+  <script defer src="./lib/dexie.min.js"></script>
+  <script defer src="./lib/papaparse.min.js"></script>
+  <script defer src="./lib/html5-qrcode.min.js"></script>
+  <script defer src="./lib/jspdf.umd.min.js"></script>
+  <script defer src="./lib/jspdf.plugin.autotable.min.js"></script>
+  <script defer src="./core.js"></script>
+  <script defer src="./reports.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="#/" aria-label="Tecma, inicio"><span class="brand-mark">T</span><span>tecma<small>DESPACHOS</small></span></a><div class="connection"><span id="online-state">Iniciando…</span><span id="offline-state">Preparando uso sin conexión</span></div></header>
+  <main id="app" tabindex="-1"><div class="empty">Abriendo tus cargas…</div></main>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="modal" aria-labelledby="modal-title"><div class="dialog-top"><h2 id="modal-title"></h2><button type="button" class="icon-button" id="modal-close" aria-label="Cerrar ventana">✕</button></div><div id="modal-content"></div></dialog>
+  <noscript>Activa JavaScript en el navegador para usar Tecma Despachos.</noscript>
+</body>
+</html>
