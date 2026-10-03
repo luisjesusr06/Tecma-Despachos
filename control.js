@@ -14,6 +14,73 @@ window.TecmaControl=(()=>{
     });return project;
   }
   async function data(id){const project=await db.projects.get(id);if(!project)throw new Error('No se encontró la obra.');const [products,events,accessories]=await Promise.all([db.products.where('projectId').equals(id).toArray(),db.events.where('projectId').equals(id).toArray(),db.accessories.where('projectId').equals(id).toArray()]);return {project,products,events,accessories};}
+  // La preparación es de solo lectura. Nada se guarda hasta pulsar Aplicar.
+  const headerKey=value=>T.plain(value).replace(/[\s_°º-]/g,'');
+  function zebraSignature(project,products){
+    return JSON.stringify([project.key,project.format,project.zebraRevision||0,products.map(p=>[p.id,T.normalizeNumber(p.numero),p.tipo,p.description,p.detalle,p.orden]).sort((a,b)=>a[0].localeCompare(b[0]))]);
+  }
+  function zebraRows(project,parsed){
+    const groups=parsed.works.filter(w=>T.obraKey(w.obra)===project.key);
+    if(!groups.length)throw new Error(`El CSV no contiene la obra ${project.obra}. No se cambió ningún dato.`);
+    const rows=new Map();
+    for(const group of groups)for(const product of group.products){
+      const p={...product,numero:T.normalizeNumber(product.numero),op:product.op||group.op};
+      const old=rows.get(p.numero);
+      if(old&&['tipo','detalle','orden'].some(key=>old[key]!==p[key]))throw new Error(`El CSV repite ${p.numero} con textos distintos. No se cambió ningún dato.`);
+      if(!old)rows.set(p.numero,p);
+    }
+    return [...rows.values()];
+  }
+  function zebraSummary(project,products,rows){
+    const existing=new Map(products.map(p=>[T.normalizeNumber(p.numero),p])),incoming=new Set(rows.map(p=>p.numero));
+    const orders=new Set(products.map(p=>T.plain(p.orden).replace(/\s+/g,' ')));
+    const newOfis=[...new Map(rows.filter(p=>T.clean(p.orden)&&!orders.has(T.plain(p.orden).replace(/\s+/g,' '))).map(p=>[T.plain(p.orden).replace(/\s+/g,' '),p.orden])).values()].sort(T.natural.compare);
+    return {added:rows.filter(p=>!existing.has(p.numero)).length,existing:rows.filter(p=>existing.has(p.numero)).length,missing:products.filter(p=>!incoming.has(T.normalizeNumber(p.numero))).length,textChanged:rows.filter(p=>{const old=existing.get(p.numero);return old&&(old.description!==p.detalle||old.tipo!==p.tipo||old.orden!==p.orden);}).length,newOfis};
+  }
+  async function previewZebra(projectId,parsed){
+    return db.transaction('r',db.projects,db.products,async()=>{
+      const project=await db.projects.get(projectId);if(!project)throw new Error('No se encontró la obra.');
+      const products=await db.products.where('projectId').equals(projectId).toArray(),rows=zebraRows(project,parsed);
+      return {projectId,rows,sourceFormat:{headers:parsed.headers,columns:parsed.columns},signature:zebraSignature(project,products),...zebraSummary(project,products,rows)};
+    });
+  }
+  function zebraRaw(project,source,format){
+    // Mantener el formato original al preparar el siguiente CSV, incluso si el
+    // nuevo archivo trae columnas en otro orden o utiliza otro separador.
+    const columns=new Map(format.headers.map((h,i)=>[headerKey(h),i]));
+    const row=project.format.headers.map(h=>{const index=columns.get(headerKey(h));return index===undefined?'':source.raw?.[index]??'';});
+    for(const [field,index]of Object.entries(project.format.columns))if(index>=0&&format.columns[field]>=0)row[index]=source.raw?.[format.columns[field]]??'';
+    return row;
+  }
+  async function applyZebra(preview){
+    return db.transaction('rw',db.projects,db.products,async()=>{
+      const project=await db.projects.get(preview.projectId);if(!project)throw new Error('No se encontró la obra.');
+      const products=await db.products.where('projectId').equals(project.id).toArray();
+      if(zebraSignature(project,products)!==preview.signature){const err=new Error('La lista de la obra cambió. Revisa el resumen actualizado antes de aplicar.');err.code='ZEBRA_CHANGED';throw err;}
+      const incoming=new Map(preview.rows.map(p=>[p.numero,p])),existing=new Set(products.map(p=>T.normalizeNumber(p.numero))),at=T.now();
+      const changes=[];
+      for(const old of products){
+        const source=incoming.get(T.normalizeNumber(old.numero)),patch={};
+        if(!source){if(!old.zebraMissing)patch.zebraMissing=true;}
+        else {
+          if(old.zebraMissing)patch.zebraMissing=false;
+          const texts={description:source.detalle,detalle:source.detalle,tipo:source.tipo,orden:source.orden};
+          for(const [key,value]of Object.entries(texts))if(old[key]!==value)patch[key]=value;
+          if(Object.keys(patch).some(k=>k!=='zebraMissing')&&Array.isArray(old.raw)&&old.raw.length===project.format.headers.length){
+            const raw=old.raw.slice();for(const [key,value]of Object.entries({detalle:source.detalle,tipo:source.tipo,orden:source.orden})){const index=project.format.columns[key];if(index>=0)raw[index]=value;}
+            if(JSON.stringify(raw)!==JSON.stringify(old.raw))patch.raw=raw;
+          }
+        }
+        // Actualizaciones parciales: no escribir estados, fechas, notas ni eventos.
+        if(Object.keys(patch).length)changes.push({id:old.id,patch});
+      }
+      const added=preview.rows.filter(p=>!existing.has(p.numero)).map(p=>({...p,id:T.uid(),projectId:project.id,raw:zebraRaw(project,p,preview.sourceFormat),description:p.detalle,note:'',status:'pendiente en fábrica',dispatchDate:null,returnedAt:null,createdAt:at,zebraMissing:false}));
+      if(added.length)await db.products.bulkAdd(added);
+      await Promise.all(changes.map(({id,patch})=>db.products.update(id,patch)));
+      await db.projects.update(project.id,{zebraUpdatedAt:at,zebraRevision:(project.zebraRevision||0)+1});
+      return {...zebraSummary(project,products,preview.rows),updatedAt:at};
+    });
+  }
   // Recalcular cronológicamente permite importar cierres fuera de orden sin alterar el saldo final.
   async function recompute(productId){
     const p=await db.products.get(productId),events=(await db.events.where('productId').equals(productId).toArray()).sort((a,b)=>a.at.localeCompare(b.at)||Number(a.kind==='return')-Number(b.kind==='return')||a.id.localeCompare(b.id));
@@ -105,5 +172,5 @@ window.TecmaControl=(()=>{
     }});return [...projectIds.values()];
   }
   async function removeRestored(ids){await db.transaction('rw',tables,async()=>{for(const id of ids){for(const table of [db.products,db.events,db.accessories])await table.where('projectId').equals(id).delete();await db.projects.delete(id);}});}
-  return {db,statuses,createProject,data,importClosure,validateClosure,mark,markNumbers,accessory,prepareCSV,backup,validateBackup,restoreBackup,removeRestored};
+  return {db,statuses,createProject,data,previewZebra,applyZebra,importClosure,validateClosure,mark,markNumbers,accessory,prepareCSV,backup,validateBackup,restoreBackup,removeRestored};
 })();

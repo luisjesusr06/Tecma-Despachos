@@ -1,4 +1,4 @@
-# Tecma Despachos 2.0.0
+# Tecma Despachos 2.0.1
 
 Actualización sobre la app original de este chat. Vanilla JavaScript, las mismas bibliotecas locales y el mismo diseño base.
 
@@ -20,6 +20,8 @@ Abre ACTUALIZAR.html para las instrucciones paso a paso de GitHub Pages, actuali
 
 Aparece con al menos 1000 px de ancho de ventana. Base local independiente TecmaControl_v1. Permite importar el CSV completo, importar cierres, marcar despachos con fecha, pegar números, registrar devoluciones y administrar accesorios/MIT. Los cierres repetidos no duplican sus movimientos. Se reconstruye el historial cronológicamente aunque los archivos se importen fuera de orden. Preparar próxima carga conserva las columnas, los valores originales y el separador del Zebra.
 
+Actualizar desde Zebra fusiona por el número del código de barras, con una vista previa y confirmación. Los existentes conservan estados, fechas, notas e historial; solo se actualizan descripción, tipo y orden. Los nuevos ingresan pendientes en fábrica. Los ausentes se conservan con la señal «ya no está en el Zebra» y un filtro propio; la señal desaparece si vuelven a aparecer en otro CSV. Cancelar no guarda nada. La fecha de la última actualización se muestra en cada obra. Repetir el CSV no duplica productos.
+
 ## Datos y actualización
 
 Se conserva TecmaDespachos_v1 como nombre de base. El esquema sube de 1 a 2 con migración transaccional, sin borrar ni recrear tablas. No enviado pasa a pendiente y el motivo se conserva como nota. Las cargas antiguas de varias obras se mantienen completas y generan documentos conjuntos con la OP de cada línea.
@@ -30,6 +32,6 @@ No hay login, analítica, servidor de datos, sincronización ni envíos automát
 
 ## Archivos
 
-core.js: base de cargas, migración, CSV y transacciones. app.js: interfaz y escaneo. reports.js: PDF, códigos y cierre. control.js: base de Control. control-ui.js: interfaz de Control. styles.css: estilos originales más reglas nuevas. sw.js: caché offline 2.0.0; conserva la estrategia de actualización al cerrar todas las ventanas. manifest.json, icons y lib permanecen sin cambios.
+core.js: base de cargas, migración, CSV y transacciones. app.js: interfaz y escaneo. reports.js: PDF, códigos y cierre. control.js: base de Control. control-ui.js: interfaz de Control. styles.css: estilos originales más reglas nuevas. sw.js: caché offline 2.0.1; conserva la estrategia de actualización al cerrar todas las ventanas. manifest.json, icons y lib permanecen sin cambios.
 
 Consulta PRUEBAS.md para resultados y limitaciones de la verificación.

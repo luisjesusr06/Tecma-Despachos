@@ -1,3 +1,41 @@
+# Verificación de Tecma Despachos 2.0.1
+
+Fecha: 3 de octubre de 2026.
+
+25 comprobaciones adicionales aprobadas en Chromium 134 con Playwright, con datos de prueba. Se revisaron visualmente la confirmación y el filtro.
+
+## Actualizar desde Zebra
+
+1. Vista previa calcula nuevos, existentes, ausentes, OFI nuevas y cambios de texto.
+2. Vista previa no escribe datos.
+3. Cancelar conserva todos los datos y no registra fecha de actualización.
+4. Cerrar la confirmación con Escape tampoco modifica datos.
+5. Existentes conservan IDs, estados, fechas, notas y todos los demás campos.
+6. Historial y accesorios quedan idénticos.
+7. Solo cambian descripción, tipo y orden; dimensiones y OP originales se conservan.
+8. Producto presente sin cambios permanece idéntico.
+9. Nuevos ingresan pendientes, sin fechas de despacho ni historial inventado.
+10. Ausente se conserva con señal, estado y notas previos.
+11. Fecha pequeña de última actualización visible tras aplicar.
+12. Preparación CSV mantiene esquema original y exporta textos actualizados y filas nuevas bien alineadas.
+13. Reimportar el mismo CSV es idempotente para productos, historial y accesorios.
+14. Filtro separado muestra solo los ausentes sin alterar sus estados.
+15. Señal de ausencia también visible en detalle del producto.
+16. CSV más antiguo o parcial no borra los productos agregados después.
+17. Un producto que vuelve al CSV pierde la señal sin perder su identidad.
+18. No pisa estados, fechas o notas registrados entre vista previa y Aplicar.
+19. CSV de otra obra no cambia ni marca ausencias en la obra abierta.
+20. Fallo al guardar revierte altas, textos, ausencias y fecha de actualización juntos.
+21. Una confirmación desactualizada no aplica un resumen que ya cambió.
+22. Doble aplicación simultánea no duplica códigos.
+23. Respaldo y restauración conservan fecha y señales de Zebra.
+24. Actualizar desde Zebra funciona sin internet después de recargar.
+25. Sin errores JavaScript de ejecución.
+
+El diseño y styles.css no se modificaron respecto de 2.0.0. app.js y sw.js solo cambian la identificación de la versión a 2.0.1; la función nueva está en control.js y control-ui.js.
+
+---
+
 # Verificación de Tecma Despachos 2.0.0
 
 Fecha: 3 de octubre de 2026.
