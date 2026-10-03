@@ -1,10 +1,10 @@
 'use strict';
 // Cambiar VERSION al publicar una actualización. Nunca borra IndexedDB.
-const VERSION='1.0.0';
+const VERSION='2.0.0';
 const PREFIX='tecma-despachos:'+self.registration.scope+':';
 const CACHE=PREFIX+VERSION;
 const ASSETS=[
-  './','./index.html','./styles.css','./app.js','./core.js','./reports.js',
+  './','./index.html','./styles.css','./app.js','./core.js','./reports.js','./control.js','./control-ui.js','./ACTUALIZAR.html',
   './manifest.json','./sw.js','./ejemplo.csv','./ejemplo-comas.csv','./GUIA.html','./README.md','./PRUEBAS.md',
   './icons/favicon.svg','./icons/icon-192.png','./icons/icon-512.png','./icons/maskable-512.png','./icons/apple-touch-icon.png',
   './lib/html5-qrcode.min.js','./lib/papaparse.min.js','./lib/jspdf.umd.min.js','./lib/jspdf.plugin.autotable.min.js','./lib/dexie.min.js',
