@@ -1,18 +1,30 @@
 'use strict';
 window.TecmaControlUI=(()=>{
-  const T=Tecma,C=TecmaControl,e=T.esc,$=s=>document.querySelector(s);let ui,route={},current=null,view='overview',query='',state='all',ofi='all',selected=new Set(),limit=100,zebraFilter='all',pendingZebra=null,zebraTicket=0;
+  const T=Tecma,C=TecmaControl,e=T.esc,$=s=>document.querySelector(s);let ui,route={},current=null,view='overview',query='',state='all',ofi='all',selected=new Set(),limit=100,zebraFilter='all',pendingZebra=null,zebraTicket=0,pendingImport=null,pendingDelete=null,renameId=null;
   const wide=()=>matchMedia('(min-width: 1000px)').matches;
   const today=()=>T.dateKey(T.now()),label=s=>s==='en obra'?'En obra':s==='devuelto'?'Devuelto':'Pendiente en fábrica';
   const cls=s=>s==='en obra'?'cargado':s==='devuelto'?'devuelto':'pendiente';
-  function init(bridge){ui=bridge;$('#modal').addEventListener('close',()=>{if(!$('#modal').open)pendingZebra=null;});matchMedia('(min-width: 1000px)').addEventListener('change',()=>{if(location.hash.startsWith('#/control'))render(route).catch(ui.error);});}
+  const trash='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
+  const shortDate=value=>{const d=new Date(value);return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}`;};
+  const productCount=n=>`${n} ${n===1?'producto':'productos'}`;
+  function projectCard(p){return `<div class="control-project-card"><a class="button card control-project-link" href="#/control/${e(p.id)}"><span>${e(C.projectName(p))} · OP ${e(p.op)}</span><small class="muted" title="${e(T.date(p.createdAt))}">Creada ${shortDate(p.createdAt)} · ${productCount(p.productCount)}</small></a>${ui.btn(trash,'control-delete','icon-button quiet',`data-id="${e(p.id)}" aria-label="Eliminar obra ${e(C.projectName(p))}" title="Eliminar obra"`)}</div>`;}
+  function duplicateConfirmation(parsed,filename,projects){
+    pendingImport={parsed,filename,projects,busy:false};
+    ui.openModal('La obra ya existe',`${projects.map(p=>`<p>Ya existe la obra <strong>${e(C.projectName(p))}</strong> (OP ${e(p.op)}) en el control, creada el ${T.date(p.createdAt)}, con ${productCount(p.productCount)}.</p>`).join('')}<p>¿Qué quieres hacer?</p>${projects.length>1?`<label>Obra que quieres actualizar<select id="control-existing-project"><option value="">Selecciona una obra</option>${projects.map(p=>`<option value="${e(p.id)}">${e(C.projectName(p))} · ${T.date(p.createdAt)} ${T.time(p.createdAt)} · ${productCount(p.productCount)}</option>`).join('')}</select></label>`:''}<div class="stack" style="margin-top:22px">${ui.btn('Actualizar la existente','control-duplicate-update','primary')}${ui.btn('Crear una obra nueva de todas formas','control-duplicate-create')}${ui.btn('Cancelar','control-dialog-cancel')}</div>`);
+  }
+  async function createFromCSV(parsed,filename,allowDuplicate=false){
+    try{const p=await C.createProject(parsed,{allowDuplicate});pendingImport=null;ui.closeModal();location.hash=`#/control/${p.id}`;if(new Set(parsed.works.map(w=>T.obraKey(w.obra))).size>1)ui.toast(`Se usó la primera obra: ${p.obra}.`);}
+    catch(err){if(err.code==='CONTROL_DUPLICATE')duplicateConfirmation(parsed,filename,err.duplicates);else throw err;}
+  }
+  function init(bridge){ui=bridge;$('#modal').addEventListener('close',()=>{if(!$('#modal').open){pendingZebra=null;pendingImport=null;pendingDelete=null;renameId=null;}});matchMedia('(min-width: 1000px)').addEventListener('change',()=>{if(location.hash.startsWith('#/control'))render(route).catch(ui.error);});}
   async function render(next){
-    route=next;pendingZebra=null;++zebraTicket;const app=$('#app');if(!wide()){app.innerHTML=ui.heading('Tus cargas','',`<a class="button" href="#/">Volver</a>`);return;}
-    if(!route.id){current=null;const projects=await C.db.projects.toArray();
-      app.innerHTML=ui.heading('Control de obras','',`<a class="button small quiet" href="#/">Mis cargas</a>`)+`<div class="card"><h2>Crear obra</h2>${ui.btn('Importar CSV completo del Zebra','control-create','primary')}<input id="control-csv" type="file" accept=".csv,text/csv" hidden></div><div class="grid" style="margin-top:20px">${projects.map(p=>`<a class="button card" href="#/control/${p.id}">${e(p.obra)} · OP ${e(p.op)}</a>`).join('')}</div>`;return;
+    route=next;pendingZebra=null;pendingImport=null;pendingDelete=null;renameId=null;++zebraTicket;const app=$('#app');if(!wide()){app.innerHTML=ui.heading('Tus cargas','',`<a class="button" href="#/">Volver</a>`);return;}
+    if(!route.id){current=null;const projects=await C.listProjects();
+      app.innerHTML=ui.heading('Control de obras','',`<a class="button small quiet" href="#/">Mis cargas</a>`)+`<div class="card"><h2>Crear obra</h2>${ui.btn('Importar CSV completo del Zebra','control-create','primary')}<input id="control-csv" type="file" accept=".csv,text/csv" hidden></div><div class="grid control-project-grid" style="margin-top:20px">${projects.map(projectCard).join('')}</div>`;return;
     }
     current=await C.data(route.id);view=route.sub||'overview';selected.clear();limit=100;query='';state='all';ofi='all';zebraFilter='all';paint();
   }
-  function header(){return ui.heading(e(current.project.obra),`OP ${e(current.project.op)} · ${current.products.length} productos<br><small class="muted">Última actualización desde Zebra: ${current.project.zebraUpdatedAt?`${T.date(current.project.zebraUpdatedAt)} · ${T.time(current.project.zebraUpdatedAt)}`:'sin actualizaciones'}</small>`,`<a class="button small quiet" href="#/control">Obras</a>`)+`<div class="toolbar"><a class="button ${view==='overview'?'primary':''}" href="#/control/${route.id}">Vista general</a><a class="button ${view==='list'?'primary':''}" href="#/control/${route.id}/list">Productos</a><a class="button ${view==='accessories'?'primary':''}" href="#/control/${route.id}/accessories">Accesorios y MIT</a></div><div class="row control-actions">${ui.btn('Actualizar desde Zebra','control-zebra','small')}<input type="file" id="control-zebra-file" accept=".csv,text/csv" hidden>${ui.btn('Importar cierres JSON','control-import','small')}${ui.btn('Pegar números','control-paste','small')}${ui.btn('Registrar devolución','control-return','small')}<input type="file" id="control-closures" accept=".json,application/json" multiple hidden><a class="button primary" href="#/control/${route.id}/prepare">Preparar próxima carga</a></div>`;}
+  function header(){return ui.heading(e(C.projectName(current.project)),`OP ${e(current.project.op)} · ${current.products.length} productos<br><small class="muted">Última actualización desde Zebra: ${current.project.zebraUpdatedAt?`${T.date(current.project.zebraUpdatedAt)} · ${T.time(current.project.zebraUpdatedAt)}`:'sin actualizaciones'}</small>`,`<a class="button small quiet" href="#/control">Obras</a>`)+`<div class="toolbar"><a class="button ${view==='overview'?'primary':''}" href="#/control/${route.id}">Vista general</a><a class="button ${view==='list'?'primary':''}" href="#/control/${route.id}/list">Productos</a><a class="button ${view==='accessories'?'primary':''}" href="#/control/${route.id}/accessories">Accesorios y MIT</a></div><div class="row control-actions">${ui.btn('Actualizar desde Zebra','control-zebra','small')}<input type="file" id="control-zebra-file" accept=".csv,text/csv" hidden>${ui.btn('Importar cierres JSON','control-import','small')}${ui.btn('Pegar números','control-paste','small')}${ui.btn('Registrar devolución','control-return','small')}<input type="file" id="control-closures" accept=".json,application/json" multiple hidden><a class="button primary" href="#/control/${route.id}/prepare">Preparar próxima carga</a>${ui.btn('Renombrar obra','control-rename','small',`data-id="${e(route.id)}"`)}${ui.btn('Eliminar obra','control-delete','small danger',`data-id="${e(route.id)}"`)}</div>`;}
   function paint(){
     if(!current||!wide())return;let html=header();
     if(view==='overview'){
@@ -36,21 +48,44 @@ window.TecmaControlUI=(()=>{
   function dates(){return ui.field('Fecha (opcional)','date',today(),'type="date"');}
   function numbersModal(kind='dispatch'){ui.openModal(kind==='return'?'Registrar devolución':'Marcar despachados',`<form id="control-numbers-form"><input type="hidden" name="kind" value="${kind}"><div class="stack">${dates()}<label>Números<textarea name="numbers" placeholder="Uno por línea o separados por coma"></textarea></label></div><div class="dialog-actions"><button class="primary" type="submit">Guardar</button></div></form>`);}
   function accessoryModal(kind='dispatch'){ui.openModal(kind==='return'?'Devolución sin código':'Agregar accesorio o MIT',`<form id="control-accessory-form"><input name="kind" type="hidden" value="${kind}"><div class="stack"><label>Descripción<textarea name="description"></textarea></label><div class="fields">${ui.field('Cantidad','quantity','1','inputmode="decimal"')}${ui.field('Unidad','unit','UNI')}</div>${dates()}</div><div class="dialog-actions"><button class="primary" type="submit">Guardar</button></div></form>`);}
-  function zebraConfirmation(plan,parsed,filename){
-    pendingZebra={plan,parsed,filename,busy:false};
-    ui.openModal('Actualizar desde Zebra',`<p><strong>${e(current.project.obra)}</strong><br><small class="muted">${e(filename)}</small></p><div class="stack"><p>Se ${plan.added===1?'agregará':'agregarán'} <strong>${plan.added}</strong> ${plan.added===1?'producto nuevo':'productos nuevos'} (OFI: ${e(plan.newOfis.join(', ')||'sin OFI nuevas detectadas')}).</p><p><strong>${plan.existing}</strong> ${plan.existing===1?'producto ya existía':'productos ya existían'} y no se modificarán sus estados, fechas, notas ni historial.</p>${plan.textChanged?`<p>Se actualizarán los textos de descripción, tipo u orden de <strong>${plan.textChanged}</strong> ${plan.textChanged===1?'producto existente':'productos existentes'}.</p>`:''}<p><strong>${plan.missing}</strong> ${plan.missing===1?'producto del control no viene':'productos del control no vienen'} en este CSV. Se ${plan.missing===1?'conservará':'conservarán'} con la señal «ya no está en el Zebra».</p></div><p class="muted subtext">La comparación usa este CSV, aunque contenga solo algunas OFI.</p><div class="dialog-actions">${ui.btn('Cancelar','control-zebra-cancel')}${ui.btn('Aplicar','control-zebra-apply','primary')}</div>`);
+  function zebraConfirmation(plan,parsed,filename,project=current.project){
+    pendingZebra={plan,parsed,filename,project,busy:false};
+    ui.openModal('Actualizar desde Zebra',`<p><strong>${e(C.projectName(project))}</strong><br><small class="muted">${e(filename)}</small></p><div class="stack"><p>Se ${plan.added===1?'agregará':'agregarán'} <strong>${plan.added}</strong> ${plan.added===1?'producto nuevo':'productos nuevos'} (OFI: ${e(plan.newOfis.join(', ')||'sin OFI nuevas detectadas')}).</p><p><strong>${plan.existing}</strong> ${plan.existing===1?'producto ya existía':'productos ya existían'} y no se modificarán sus estados, fechas, notas ni historial.</p>${plan.textChanged?`<p>Se actualizarán los textos de descripción, tipo u orden de <strong>${plan.textChanged}</strong> ${plan.textChanged===1?'producto existente':'productos existentes'}.</p>`:''}<p><strong>${plan.missing}</strong> ${plan.missing===1?'producto del control no viene':'productos del control no vienen'} en este CSV. Se ${plan.missing===1?'conservará':'conservarán'} con la señal «ya no está en el Zebra».</p></div><p class="muted subtext">La comparación usa este CSV, aunque contenga solo algunas OFI.</p><div class="dialog-actions">${ui.btn('Cancelar','control-zebra-cancel')}${ui.btn('Aplicar','control-zebra-apply','primary')}</div>`);
   }
   async function refresh(){current=await C.data(route.id);paint();}
   async function click(action,b){
     if(!action.startsWith('control-'))return false;if(!wide())return true;
     if(action==='control-create')$('#control-csv').click();
+    else if(action==='control-dialog-cancel'){pendingImport=null;pendingDelete=null;renameId=null;ui.closeModal();}
+    else if(action==='control-delete'){
+      const p=await C.db.projects.get(b.dataset.id);if(!p)throw new Error('No se encontró la obra.');
+      pendingDelete={id:p.id,busy:false};
+      ui.openModal('Eliminar obra',`<p>Esto eliminará la obra ${e(C.projectName(p))} (OP ${e(p.op)}) con todos sus productos, historial y accesorios. Esta acción no se puede deshacer.</p><div class="dialog-actions">${ui.btn('Cancelar','control-dialog-cancel')}${ui.btn('Eliminar','control-delete-confirm','danger')}</div>`);
+    }
+    else if(action==='control-delete-confirm'){
+      const pending=pendingDelete;if(!pending||pending.busy)return true;pending.busy=true;b.disabled=true;
+      try{await C.deleteProject(pending.id);pendingDelete=null;ui.closeModal();if(route.id)location.hash='#/control';else await render(route);ui.toast('Obra eliminada.');}catch(err){pending.busy=false;throw err;}
+    }
+    else if(action==='control-rename'){
+      const p=await C.db.projects.get(b.dataset.id);if(!p)throw new Error('No se encontró la obra.');renameId=p.id;
+      ui.openModal('Renombrar obra',`<form id="control-rename-form">${ui.field('Nombre de la obra','displayName',C.projectName(p),'required')}<div class="dialog-actions">${ui.btn('Cancelar','control-dialog-cancel')}<button type="submit" class="primary">Guardar</button></div></form>`);
+    }
+    else if(action==='control-duplicate-create'||action==='control-duplicate-update'){
+      const pending=pendingImport;if(!pending||pending.busy)return true;
+      const id=pending.projects.length===1?pending.projects[0].id:$('#control-existing-project').value;
+      if(action==='control-duplicate-update'&&!id)throw new Error('Selecciona la obra que quieres actualizar.');
+      pending.busy=true;b.disabled=true;
+      try{if(action==='control-duplicate-create')await createFromCSV(pending.parsed,pending.filename,true);
+        else {const project=await C.db.projects.get(id);if(!project)throw new Error('Esa obra ya no existe. Vuelve a seleccionar el CSV.');const plan=await C.previewZebra(id,pending.parsed);if(pendingImport===pending&&$('#modal').open){pendingImport=null;zebraConfirmation(plan,pending.parsed,pending.filename,project);}}
+      }catch(err){pending.busy=false;throw err;}
+    }
     else if(action==='control-zebra')$('#control-zebra-file').click();
     else if(action==='control-zebra-cancel'){pendingZebra=null;ui.closeModal();}
     else if(action==='control-zebra-apply'){
-      const pending=pendingZebra;if(!pending||pending.busy||pending.plan.projectId!==current?.project.id)return true;
+      const pending=pendingZebra;if(!pending||pending.busy||pending.plan.projectId!==pending.project.id)return true;
       pending.busy=true;b.disabled=true;
-      try{const result=await C.applyZebra(pending.plan);pendingZebra=null;ui.closeModal();await refresh();ui.toast(`Zebra actualizado: ${result.added} nuevos · ${result.missing} ausentes del CSV.`);}
-      catch(err){if(err.code==='ZEBRA_CHANGED'){const plan=await C.previewZebra(pending.plan.projectId,pending.parsed);zebraConfirmation(plan,pending.parsed,pending.filename);ui.toast(err.message);}else{pending.busy=false;throw err;}}
+      try{const result=await C.applyZebra(pending.plan);pendingZebra=null;ui.closeModal();if(route.id===pending.plan.projectId)await refresh();else location.hash=`#/control/${pending.plan.projectId}`;ui.toast(`Zebra actualizado: ${result.added} nuevos · ${result.missing} ausentes del CSV.`);}
+      catch(err){if(err.code==='ZEBRA_CHANGED'){const plan=await C.previewZebra(pending.plan.projectId,pending.parsed);zebraConfirmation(plan,pending.parsed,pending.filename,pending.project);ui.toast(err.message);}else{pending.busy=false;throw err;}}
     }
     else if(action==='control-import')$('#control-closures').click();
     else if(action==='control-ofi'){view='list';ofi=b.dataset.ofi;state='all';query='';paint();}
@@ -83,7 +118,7 @@ window.TecmaControlUI=(()=>{
     }
     if(el.id==='control-zebra-filter'){zebraFilter=el.value;limit=100;paintList();return true;}
     if(el.id==='control-csv'){
-      if(!el.files[0])return true;const parsed=await T.readCSV(el.files[0]),p=await C.createProject(parsed);location.hash=`#/control/${p.id}`;if(new Set(parsed.works.map(w=>T.obraKey(w.obra))).size>1)ui.toast(`Se usó la primera obra: ${p.obra}.`);return true;
+      const file=el.files[0];el.value='';if(!file)return true;const ticket=++zebraTicket,parsed=await T.readCSV(file);if(ticket===zebraTicket&&!route.id&&wide())await createFromCSV(parsed,file.name);return true;
     }
     if(el.id==='control-closures'){
       let added=0;const errors=[];el.disabled=true;
@@ -97,7 +132,11 @@ window.TecmaControlUI=(()=>{
   function input(el){if(el.id==='control-query'&&wide()){query=el.value;limit=100;paintList();}}
   async function submit(form){
     if(!wide())return;const row=Object.fromEntries(new FormData(form));
-    if(form.id==='control-bulk-form'){const n=await C.mark(route.id,[...selected],row.kind,row.date);ui.closeModal();selected.clear();await refresh();ui.toast(`${n} productos actualizados.`);}
+    if(form.id==='control-rename-form'){
+      const id=renameId,button=form.querySelector('[type="submit"]');if(!id||button.disabled)return;button.disabled=true;
+      try{await C.renameProject(id,row.displayName);renameId=null;ui.closeModal();await refresh();ui.toast('Nombre actualizado.');}finally{if(button.isConnected)button.disabled=false;}
+    }
+    else if(form.id==='control-bulk-form'){const n=await C.mark(route.id,[...selected],row.kind,row.date);ui.closeModal();selected.clear();await refresh();ui.toast(`${n} productos actualizados.`);}
     else if(form.id==='control-numbers-form'){const result=await C.markNumbers(route.id,row.numbers,row.kind,row.date);ui.closeModal();await refresh();ui.toast(`${result.count} productos actualizados.${result.missing.length?' No encontrados: '+result.missing.join(', '):''}`);}
     else if(form.id==='control-accessory-form'){await C.accessory(route.id,row);ui.closeModal();await refresh();}
   }

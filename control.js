@@ -5,10 +5,31 @@ window.TecmaControl=(()=>{
   db.version(1).stores({projects:'id,key,createdAt',products:'id,projectId,[projectId+numero]',events:'id,projectId,productId,at,[projectId+sourceKey]',accessories:'id,projectId,[projectId+sourceKey]'});
   const tables=[db.projects,db.products,db.events,db.accessories];
   const statuses=['pendiente en fábrica','en obra','devuelto'];
-  async function createProject(parsed){
+  const projectName=project=>T.clean(project.displayName)||project.obra;
+  const opKey=value=>T.plain(value).replace(/\s+/g,' ');
+  async function projectSummaries(projects){return Promise.all(projects.map(async p=>({...p,productCount:await db.products.where('projectId').equals(p.id).count()})));}
+  async function listProjects(){return db.transaction('r',db.projects,db.products,async()=>projectSummaries(await db.projects.toArray()));}
+  async function matchingProjects(work){
+    const projects=(await db.projects.where('key').equals(T.obraKey(work.obra)).toArray()).filter(p=>opKey(p.op)===opKey(work.op));
+    return projectSummaries(projects.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id)));
+  }
+  async function renameProject(id,name){
+    const displayName=T.clean(name);if(!displayName)throw new Error('Escribe un nombre para la obra.');
+    // El nombre visible no cambia la identidad original usada por Zebra y los cierres.
+    if(!await db.projects.update(id,{displayName}))throw new Error('No se encontró la obra.');
+  }
+  async function deleteProject(id){
+    await db.transaction('rw',tables,async()=>{
+      if(!await db.projects.get(id))throw new Error('No se encontró la obra.');
+      for(const table of [db.products,db.events,db.accessories])await table.where('projectId').equals(id).delete();
+      await db.projects.delete(id);
+    });
+  }
+  async function createProject(parsed,{allowDuplicate=false}={}){
     const w=T.firstWork(parsed);if(!w)throw new Error('No se encontraron productos.');
     const project={id:T.uid(),key:T.obraKey(w.obra),obra:w.obra,op:w.op,createdAt:T.now(),format:{headers:parsed.headers,columns:parsed.columns,delimiter:parsed.delimiter,newline:parsed.newline,bom:parsed.bom,sepLine:parsed.sepLine}};
     await db.transaction('rw',tables,async()=>{
+      if(!allowDuplicate){const duplicates=await matchingProjects(w);if(duplicates.length){const err=new Error('La obra ya existe en el control.');err.code='CONTROL_DUPLICATE';err.duplicates=duplicates;throw err;}}
       await db.projects.add(project);
       await db.products.bulkAdd(w.products.map(p=>({...p,id:T.uid(),projectId:project.id,description:p.detalle,note:'',status:'pendiente en fábrica',dispatchDate:null,returnedAt:null,createdAt:T.now()})));
     });return project;
@@ -172,5 +193,5 @@ window.TecmaControl=(()=>{
     }});return [...projectIds.values()];
   }
   async function removeRestored(ids){await db.transaction('rw',tables,async()=>{for(const id of ids){for(const table of [db.products,db.events,db.accessories])await table.where('projectId').equals(id).delete();await db.projects.delete(id);}});}
-  return {db,statuses,createProject,data,previewZebra,applyZebra,importClosure,validateClosure,mark,markNumbers,accessory,prepareCSV,backup,validateBackup,restoreBackup,removeRestored};
+  return {db,statuses,projectName,listProjects,renameProject,deleteProject,createProject,data,previewZebra,applyZebra,importClosure,validateClosure,mark,markNumbers,accessory,prepareCSV,backup,validateBackup,restoreBackup,removeRestored};
 })();

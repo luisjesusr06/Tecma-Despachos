@@ -13,3 +13,9 @@
 .camera-recent{display:flex;gap:5px;padding:6px;overflow:hidden}.read-chip{flex:1;border-radius:6px;padding:5px;font-size:.75rem;line-height:1.25}.read-chip b{display:block}.read-chip.success{background:#dcf5e1;color:#174e27}.read-chip.warning{background:#fff3c9;color:#65490a}.read-chip.info{background:#e0f1f7;color:#215566}.read-chip.error{background:#ffe4e1;color:#862b23}
 .product.devuelto{border-left-color:#dab349}.product.trasladado{border-left-color:#9caaa4}.control-actions{position:sticky;top:0;background:var(--bg);z-index:4;padding:10px 0}.ofi-card{display:flex;flex-direction:column;align-items:stretch;gap:14px}.ofi-bar{display:flex;height:32px;background:var(--bg);overflow:hidden;border-radius:8px}.ofi-bar>span{display:grid;place-items:center;min-width:0}.in-work{background:#dcf5e1;color:#174e27}.returned{background:#fff3c9;color:#65490a}.at-factory{background:#e9eeeb;color:#3b5146}.control-product{flex-wrap:nowrap;gap:10px}.control-product .product{flex:1}.control-product .state{max-width:145px}
 .tabs .count-pill{color:var(--ink)}
+/* Lista de obras de Control: filas parejas y acciones fuera del enlace. */
+.control-project-grid{grid-auto-rows:1fr;align-items:stretch}
+.control-project-card{position:relative;display:flex;min-width:0;margin:0}
+.control-project-link{flex:1;min-width:0;min-height:116px;margin:0;padding-inline:64px;flex-direction:column;overflow-wrap:anywhere}
+.control-project-link small{font-weight:400}
+.control-project-card>.icon-button{position:absolute;top:8px;right:8px}

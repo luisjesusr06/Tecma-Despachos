@@ -1,3 +1,52 @@
+# Verificación de Tecma Despachos 2.0.2
+
+Fecha: 4 de octubre de 2026.
+
+30 comprobaciones de integración aprobadas en Node, con jsdom 26 y fake-indexeddb 6. Se ejecutaron los archivos reales core.js, control.js y control-ui.js sobre datos de prueba. No se usaron datos del usuario.
+
+## Gestión de obras
+
+1. Tarjeta muestra fecha y cantidad real de productos.
+2. Eliminar es un botón independiente del enlace de la tarjeta.
+3. Confirmación identifica la obra y OP con el texto solicitado.
+4. Cancelar eliminación no cambia ninguna tabla.
+5. Cerrar el diálogo invalida la eliminación pendiente.
+6. Cancelar renombrado no guarda cambios.
+7. Renombrar solo cambia el nombre visible; conserva identidad, estados, notas, fechas, historial y accesorios.
+8. Nombre visible aparece escapado en pantalla.
+9. Nombre vacío se rechaza sin borrar el nombre anterior.
+10. Importar duplicado presenta nombre, OP, fecha, cantidad y tres opciones.
+11. Aviso de duplicado no guarda nada.
+12. Cancelar importación duplicada conserva todo.
+13. Actualizar existente usa el resumen Zebra sin guardar todavía.
+14. Cancelar fusión desde duplicados tampoco cambia datos.
+15. Fusión desde la lista agrega producto sin duplicar obra y conserva el historial.
+16. Fusión desde la lista dirige a la obra actualizada.
+17. Cantidad en tarjeta se actualiza después de fusionar.
+18. Crear nueva de todas formas agrega una obra independiente.
+19. Si hay varios duplicados se ofrece un selector explícito.
+20. No se actualiza un duplicado arbitrario sin seleccionarlo.
+21. Se fusiona únicamente el duplicado seleccionado.
+22. Mismo nombre con otra OP se crea sin aviso.
+23. Otra obra con la misma OP no se considera duplicada.
+24. Eliminar desde tarjeta borra la obra y todas sus relaciones sin afectar otras obras.
+25. Eliminar obra no modifica las cargas de despacho.
+26. Eliminar dentro de la obra vuelve a la lista y elimina todos sus datos.
+27. Error al eliminar revierte productos, historial, accesorios y obra juntos.
+28. Dos importaciones simultáneas solo crean una obra sin autorización de duplicado.
+29. Nombre duplicado se reconoce con distintas mayúsculas, tildes y espacios.
+30. Respaldo conserva alias, nombre original, fecha y relaciones.
+
+## Alcance y limitaciones de esta versión
+
+- JavaScript revisado con node --check.
+- Estilos anteriores conservados íntegramente. Se añaden reglas limitadas a la grilla de obras, la disposición del texto y el botón de eliminar.
+- Sin cambios en la base de cargas, escáner, PDF, bibliotecas, iconos ni manifest. app.js y sw.js solo actualizan la identificación de versión.
+- No se completó la prueba visual en un navegador real: el entorno no pudo instalar Chromium y la revisión automática de permisos bloqueó el acceso del navegador a la copia local. Las pruebas anteriores de navegador que siguen corresponden a las versiones indicadas, no constituyen una nueva ejecución para 2.0.2.
+- La alineación se implementa con filas de igual tamaño y altura compartida; falta su comprobación visual en navegador.
+
+---
+
 # Verificación de Tecma Despachos 2.0.1
 
 Fecha: 3 de octubre de 2026.
