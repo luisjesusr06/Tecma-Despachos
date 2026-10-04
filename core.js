@@ -135,7 +135,7 @@ window.Tecma = (() => {
   }
   async function loadData(loadId){const load=await db.loads.get(loadId);if(!load)throw new Error('No se encontró la carga.');const [works,products,accessories]=await Promise.all([db.works.where('loadId').equals(loadId).toArray(),db.products.where('loadId').equals(loadId).toArray(),db.accessories.where('loadId').equals(loadId).toArray()]);works.sort((a,b)=>natural.compare(a.obra,b.obra)||natural.compare(a.op,b.op));accessories.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));load.name=loadName(load,works,products);return {load,works,products,accessories};}
   function counts(products){return {total:products.filter(p=>p.status!=='trasladado').length,cargado:products.filter(p=>p.status==='cargado').length,pendiente:products.filter(p=>p.status==='pendiente').length,devuelto:products.filter(p=>p.status==='devuelto').length,trasladado:products.filter(p=>p.status==='trasladado').length};}
-  const snapshot=p=>({status:p.status,reason:p.reason||'',note:p.note||'',scannedAt:p.scannedAt,returnedAt:p.returnedAt||null,description:p.description,atril:p.atril,lastEvent:p.lastEvent});
+  const snapshot=p=>({status:p.status,reason:p.reason||'',note:p.note||'',scannedAt:p.scannedAt,returnedAt:p.returnedAt||null,description:p.description,tipo:p.tipo,orden:p.orden,atril:p.atril,lastEvent:p.lastEvent});
   async function changeProduct(id,patch,kind='edit',source='detalle'){
     return db.transaction('rw',db.loads,db.products,db.events,async()=>{
       const p=await db.products.get(id);if(!p)throw new Error('El producto ya no existe.');
@@ -145,7 +145,9 @@ window.Tecma = (() => {
         p.status=patch.status;p.scannedAt=p.status==='cargado'?(before.status==='cargado'?p.scannedAt:at):null;
         if(load.status==='closed'&&p.status!==before.status)await db.loads.update(load.id,{status:'open',closedAt:null,updatedAt:at});
       }
-      if(patch.description!==undefined)p.description=clean(patch.description)||p.detalle||`Código ${p.numero}`;
+      if(patch.description!==undefined)p.description=clean(patch.description)||(p.unknown?'SIN DESCRIPCIÓN':p.detalle||`Código ${p.numero}`);
+      if(p.unknown&&patch.tipo!==undefined)p.tipo=clean(patch.tipo);
+      if(p.unknown&&patch.orden!==undefined)p.orden=clean(patch.orden);
       if(patch.atril!==undefined)p.atril=clean(patch.atril);
       if(patch.note!==undefined)p.note=clean(patch.note);
       p.reason='';p.updatedAt=at;p.lastEvent=eventId;
@@ -172,7 +174,7 @@ window.Tecma = (() => {
     return db.transaction('rw',db.loads,db.works,db.products,db.events,async()=>{
       const existing=await db.products.where('[loadId+numero]').equals([loadId,numero]).first();if(existing)return scanProduct(existing.id,source);
       const work=await db.works.where('loadId').equals(loadId).first();
-      const p={id:uid(),loadId,workId:work.id,numero,tipo:'SIN IDENTIFICAR',detalle:`Código ${numero}`,description:`Código ${numero}`,orden:'',familia:'',subfamilia:'',atril:'',reason:'',note:'',unknown:true,status:'pendiente',scannedAt:null,lastEvent:null,createdAt:now(),updatedAt:now()};
+      const p={id:uid(),loadId,workId:work.id,numero,tipo:'',detalle:'',description:'SIN DESCRIPCIÓN',orden:'',familia:'',subfamilia:'',atril:'',reason:'',note:'',unknown:true,status:'pendiente',scannedAt:null,lastEvent:null,createdAt:now(),updatedAt:now()};
       await db.products.add(p);return {kind:'unknown',product:await changeProduct(p.id,{status:'cargado'},'scan',source)};
     });
   }
@@ -213,7 +215,7 @@ window.Tecma = (() => {
   async function deleteAccessory(id){return db.transaction('rw',db.loads,db.accessories,db.events,async()=>{const a=await db.accessories.get(id);if(!a)return;await assertOpen(a.loadId);await db.accessories.delete(id);await db.events.add({id:uid(),loadId:a.loadId,at:now(),kind:'accessory-delete',accessoryId:id,before:a});});}
   async function setClosed(loadId,closed){return db.transaction('rw',db.loads,db.events,async()=>{const l=await db.loads.get(loadId);if(!l)throw new Error('No se encontró la carga.');const at=now();await db.loads.update(loadId,{status:closed?'closed':'open',closedAt:closed?at:null,updatedAt:at});await db.events.add({id:uid(),loadId,at,kind:closed?'close':'reopen'});});}
   async function deleteLoad(id){return db.transaction('rw',txTables,async()=>{for(const table of [db.works,db.products,db.accessories,db.events])await table.where('loadId').equals(id).delete();await db.loads.delete(id);await db.meta.delete(`draft:${id}`);});}
-  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:2,exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:(await db.meta.toArray()).filter(x=>x.key.startsWith('draft:'))}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
+  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:2,exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:await db.meta.where('key').startsWith('draft:').toArray()}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
   function validateBackup(b){
     const fail=()=>{throw new Error('El respaldo no es válido o está incompleto. No se cambió ningún dato.');};
     if(!b||b.app!=='tecma-despachos'||![1,2].includes(b.version))fail();

@@ -9,11 +9,12 @@ window.TecmaReports = (()=>{
   const num=n=>new Intl.NumberFormat('es-CL',{maximumFractionDigits:20}).format(n);
   const safeName=value=>String(value||'SIN_OP').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,90)||'SIN_NOMBRE';
   const pdfText=v=>String(v??'').replace(/[^\x20-\x7e\xa0-\xff\n\r]/g,' ');
+  const productDescription=p=>T.clean(p.description)||'SIN DESCRIPCIÓN';
   function guideRows(data,work){
     const groups=new Map();
     for(const p of data.products.filter(p=>p.workId===work.id&&p.status==='cargado')){
-      const key=JSON.stringify([p.op||work.op,p.tipo,p.description,p.orden,p.atril]);
-      if(!groups.has(key))groups.set(key,{quantity:0,op:p.op||work.op,tipo:p.tipo,description:p.description,orden:p.orden,atril:p.atril});
+      const description=productDescription(p),key=JSON.stringify([p.op||work.op,p.tipo,description,p.orden,p.atril]);
+      if(!groups.has(key))groups.set(key,{quantity:0,op:p.op||work.op,tipo:p.tipo,description,orden:p.orden,atril:p.atril});
       groups.get(key).quantity++;
     }
     return [...groups.values()].sort((a,b)=>T.natural.compare(a.tipo,b.tipo)||T.natural.compare(a.description,b.description)||T.natural.compare(a.orden,b.orden)||T.natural.compare(a.atril,b.atril)).map(p=>[num(p.quantity),p.op,p.tipo,p.description,p.orden,p.atril]).concat(data.accessories.filter(a=>a.workId===work.id).map(a=>[num(a.quantity),a.op||work.op,a.unit,a.description,'',a.atril]));
@@ -55,11 +56,12 @@ window.TecmaReports = (()=>{
         table(head,rows.length?rows:[head.map((_,i)=>i===0?'Sin registros':'')],y+8,{columnStyles:widths||{}});y=doc.lastAutoTable.finalY+12;
       }
       // Las notas van en la columna de descripción: mismas columnas y anchos.
-      const description=p=>[p.description,p.note?'Nota: '+p.note:''].filter(Boolean).join('\n');
-      const standard=products.filter(p=>!p.carryFrom?.length);
+      const description=p=>[productDescription(p),p.note?'Nota: '+p.note:''].filter(Boolean).join('\n');
+      const standard=products.filter(p=>!p.carryFrom?.length&&!p.unknown);
       section('Cargados',['NÚMERO','TIPO','DESCRIPCIÓN','HORA'],standard.filter(p=>p.status==='cargado').map(p=>[p.numero,p.tipo,description(p),`${T.date(p.scannedAt)}\n${T.time(p.scannedAt)}`]),{0:{cellWidth:23},1:{cellWidth:26},3:{cellWidth:29}});
       section('Pendientes sin escanear',['NÚMERO','TIPO','DESCRIPCIÓN'],standard.filter(p=>p.status==='pendiente').map(p=>[p.numero,p.tipo,description(p)]),{0:{cellWidth:23},1:{cellWidth:26}});
-      if(products.some(p=>p.carryFrom?.length))section('Arrastrados de viajes anteriores',['NÚMERO','TIPO','DESCRIPCIÓN','HORA'],products.filter(p=>p.carryFrom?.length).map(p=>[p.numero,p.tipo,[description(p),'Estado: '+p.status,...p.carryFrom.map(o=>'Desde: '+o.name)].join('\n'),p.scannedAt?`${T.date(p.scannedAt)}\n${T.time(p.scannedAt)}`:'']),{0:{cellWidth:23},1:{cellWidth:26},3:{cellWidth:29}});
+      if(products.some(p=>p.carryFrom?.length&&!p.unknown))section('Arrastrados de viajes anteriores',['NÚMERO','TIPO','DESCRIPCIÓN','HORA'],products.filter(p=>p.carryFrom?.length&&!p.unknown).map(p=>[p.numero,p.tipo,[description(p),'Estado: '+p.status,...p.carryFrom.map(o=>'Desde: '+o.name)].join('\n'),p.scannedAt?`${T.date(p.scannedAt)}\n${T.time(p.scannedAt)}`:'']),{0:{cellWidth:23},1:{cellWidth:26},3:{cellWidth:29}});
+      if(products.some(p=>p.unknown))section('Agregados al escanear',['NÚMERO','TIPO','DESCRIPCIÓN','HORA'],products.filter(p=>p.unknown).map(p=>[p.numero,p.tipo,[description(p),'Estado: '+p.status,p.orden,...(p.carryFrom||[]).map(o=>'Desde: '+o.name),p.transferredTo?'Destino: '+(p.transferredTo.name||'Otra carga'):''].filter(Boolean).join('\n'),p.returnedAt?`${T.date(p.returnedAt)}\n${T.time(p.returnedAt)}`:p.scannedAt?`${T.date(p.scannedAt)}\n${T.time(p.scannedAt)}`:'']),{0:{cellWidth:23},1:{cellWidth:26},3:{cellWidth:29}});
       if(standard.some(p=>p.status==='devuelto'))section('Devueltos',['NÚMERO','TIPO','DESCRIPCIÓN','HORA'],standard.filter(p=>p.status==='devuelto').map(p=>[p.numero,p.tipo,description(p),`${T.date(p.returnedAt)}\n${T.time(p.returnedAt)}`]),{0:{cellWidth:23},1:{cellWidth:26},3:{cellWidth:29}});
       if(standard.some(p=>p.status==='trasladado'))section('Trasladados',['NÚMERO','TIPO','DESCRIPCIÓN'],standard.filter(p=>p.status==='trasladado').map(p=>[p.numero,p.tipo,description(p)+'\nDestino: '+(p.transferredTo?.name||'Otra carga')]),{0:{cellWidth:23},1:{cellWidth:26}});
       section('Accesorios',['CANTIDAD','UNIDAD','DESCRIPCIÓN','ATRIL'],accessories.map(a=>[num(a.quantity),a.unit,a.description,a.atril]),{0:{cellWidth:25},1:{cellWidth:23},3:{cellWidth:28}});
@@ -71,7 +73,7 @@ window.TecmaReports = (()=>{
   function createClosure(data){
     const work=combined(data).works[0],when=data.load.closedAt||T.now();
     const payload={app:'tecma-despachos-cierre',version:1,exportedAt:T.now(),load:{...data.load,name:T.loadName(data.load,data.works,data.products)},works:data.works,products:data.products,accessories:data.accessories,ofis:T.ofis(data.products),returns:data.products.filter(p=>p.returnedAt).map(p=>({numero:p.numero,returnedAt:p.returnedAt}))};
-    return {blob:new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),name:`Cierre_${safeName(work.obra)}_${safeName(work.op)}_${T.dateKey(when)}.json`};
+    return {blob:new Blob([JSON.stringify(payload,null,2)],{type:'text/plain'}),name:`Cierre_${safeName(work.obra)}_${safeName(work.op)}_${T.dateKey(when)}.txt`};
   }
   return {combined,createClosure,guideRows,createPDF,createCodes,safeName,num};
 })();

@@ -7,7 +7,7 @@ window.TecmaControl=(()=>{
   const statuses=['pendiente en fábrica','en obra','devuelto'];
   const projectName=project=>T.clean(project.displayName)||project.obra;
   const opKey=value=>T.plain(value).replace(/\s+/g,' ');
-  async function projectSummaries(projects){return Promise.all(projects.map(async p=>({...p,productCount:await db.products.where('projectId').equals(p.id).count()})));}
+  async function projectSummaries(projects){return Promise.all(projects.map(async p=>{const products=await db.products.where('projectId').equals(p.id).toArray();return {...p,productCount:products.length,statusCounts:Object.fromEntries(statuses.map(s=>[s,products.filter(p=>p.status===s).length]))};}));}
   async function listProjects(){return db.transaction('r',db.projects,db.products,async()=>projectSummaries(await db.projects.toArray()));}
   async function matchingProjects(work){
     const projects=(await db.projects.where('key').equals(T.obraKey(work.obra)).toArray()).filter(p=>opKey(p.op)===opKey(work.op));
@@ -119,7 +119,7 @@ window.TecmaControl=(()=>{
     await db.events.add({id:T.uid(),...row});return true;
   }
   function validateClosure(c){
-    if(c?.app!=='tecma-despachos-cierre'||c.version!==1||!c.load?.id||!Array.isArray(c.works)||!Array.isArray(c.products)||!Array.isArray(c.accessories))throw new Error('Selecciona un archivo JSON de cierre de Tecma.');
+    if(c?.app!=='tecma-despachos-cierre'||c.version!==1||!c.load?.id||!Array.isArray(c.works)||!Array.isArray(c.products)||!Array.isArray(c.accessories))throw new Error('Selecciona un archivo de cierre de Tecma (.txt o .json).');
     if(c.load.status!=='closed')throw new Error('Este archivo no corresponde a una carga cerrada.');
     const works=new Set(c.works.map(w=>w.id)),numbers=new Set();
     for(const p of c.products){const key=p.workId+':'+p.numero;if(!/^\d{6}$/.test(p.numero)||!works.has(p.workId)||numbers.has(key)||!['pendiente','cargado','devuelto','trasladado'].includes(p.status)||p.scannedAt&&!Number.isFinite(Date.parse(p.scannedAt))||p.returnedAt&&!Number.isFinite(Date.parse(p.returnedAt)))throw new Error('El cierre contiene productos incompletos.');numbers.add(key);}

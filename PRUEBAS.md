@@ -1,3 +1,83 @@
+# Verificación de Tecma Despachos 2.1.0
+
+78 comprobaciones automatizadas aprobadas: 42 del flujo completo de las funciones nuevas, 30 de regresión de gestión de obras y 6 del service worker. JavaScript comprobado con node --check.
+
+## Entorno y límites
+
+- Se ejecutaron los archivos reales de la aplicación en Node con jsdom y fake-indexeddb. Cámara, compartir, descargas y persistencia se simularon; el service worker se ejecutó con Cache API y red simuladas. Estas pruebas no equivalen a una ejecución en un navegador real ni en los dispositivos del usuario.
+- La comprobación visual del navegador local continúa bloqueada por la revisión automática de permisos del entorno. No se eludió esa restricción. No se pudo comprobar aquí el menú real de WhatsApp, la cámara física, un lector Bluetooth físico ni una actualización instalada en teléfono/laptop.
+- Sí se revisaron visualmente los PDF generados por las bibliotecas locales reales, renderizados con Poppler. Los PDF de una carga normal, sin agregados, dieron imágenes idénticas píxel a píxel a 2.0.2. Se revisaron una guía y las cinco páginas de un control con 27 agregados, descripciones vacías y notas largas. Todos los números aparecen una vez y las notas permanecen fuera de la guía.
+- styles.css, index.html, manifest, bibliotecas e iconos permanecen idénticos. CSV, normalización, adquisición de cámara, captura Bluetooth, destello, marco, sonidos y vibración conservan sus bloques originales.
+- La estructura y versión de ambas bases no cambian. Se usan campos de producto ya existentes y metadatos para la copia pendiente y la fecha del respaldo. El service worker solo cambia VERSION a 2.1.0.
+
+## Nuevas funciones y conservación de datos
+
+1. Abrir bases 2.0.2 con 2.1.0 conserva todas las filas y relaciones byte por byte.
+2. Persistencia se pide al iniciar; rechazo no impide abrir la app.
+3. Aviso de desconocido ofrece tres opciones sin guardar, abrir modal ni bloquear.
+4. Aviso permite seguir escaneando por Bluetooth.
+5. Agregar producto lo guarda cargado con fecha antes del formulario opcional.
+6. Completar después conserva cargado, SIN DESCRIPCIÓN y devuelve el foco al lector.
+7. Reescaneo no duplica producto agregado.
+8. Cámara, Bluetooth y manual comparten el alta de productos cargados.
+9. Formulario opcional guarda tipo, descripción y OFI conservando escaneo e historial.
+10. Opción de accesorio sigue disponible y no crea un producto.
+11. OFI se ordenan naturalmente y Sin OFI queda al final.
+12. Encabezado usa avance real y conserva el Tipo original en los datos.
+13. Productos agregados llevan una marca discreta.
+14. Producto se puede completar después sin perder estado ni fecha de carga.
+15. Buscador instantáneo combina número, tipo, descripción y OFI sin cambiar foco.
+16. Búsqueda y filtro Pendientes se combinan.
+17. Búsqueda ignora mayúsculas y tildes.
+18. Búsqueda por número encuentra el producto.
+19. Búsqueda por OFI funciona.
+20. X limpia la búsqueda y conserva el foco.
+21. Filtro Cargados mantiene bloques OFI sin intercalarlos.
+22. PDF disponible con datos opcionales vacíos y carga abierta.
+23. Cerrar carga ofrece respaldo sin abrir diálogo ni bloquear PDF.
+24. Respaldo automático incluye cargas, control, eventos y accesorios y no se incluye a sí mismo.
+25. Cierre TXT text/plain conserva JSON versión 1 y productos reales.
+26. Compartir envía archivo de cierre TXT con MIME text/plain.
+27. Fallo de compartir descarga y muestra ubicación y nombre.
+28. Respaldo se comparte como TXT text/plain y mantiene fecha.
+29. Inicio muestra fecha del último respaldo.
+30. Más de 7 días muestra aviso y Respaldar ahora sin diálogo.
+31. Selector de cierres acepta TXT y JSON.
+32. Importar TXT reconoce agregado como producto en obra y ofrece respaldo.
+33. Reimportar el cierre no duplica registros ni historial.
+34. Respaldo tras importar contiene el movimiento recién guardado.
+35. Tarjeta conserva metadatos y muestra tres segmentos con porcentaje real.
+36. Restauración acepta archivos TXT y JSON.
+37. Restaurar TXT y JSON conserva originales, notas, productos nuevos y relaciones.
+38. Guía agrupa agregados como productos normales y usa SIN DESCRIPCIÓN.
+39. CSS, index, bibliotecas, iconos y manifest siguen intactos.
+40. Cancelar compartir conserva respaldo pendiente y no descarga otro archivo.
+41. Fallo del respaldo automático conserva el cierre y mantiene PDF disponible.
+42. Reabrir la app recupera el respaldo pendiente completo sin perder registros.
+
+## Funcionamiento offline
+
+1. Service worker precarga todos los archivos locales sin dependencias remotas.
+2. Todos los recursos se sirven desde caché con red desconectada.
+3. Navegación offline nueva devuelve index.html.
+4. Activar elimina solo caché anterior de esta app, no otras cachés ni bases de datos.
+5. Diagnóstico offline informa caché completa y versión 2.1.0.
+6. Estrategia del service worker se conserva: solo cambia VERSION.
+
+## Regresión de Control
+
+Se volvieron a ejecutar y aprobar las 30 comprobaciones de 2.0.2 que se detallan abajo: eliminación, renombrado, duplicados, fusión Zebra, transacciones, aislamiento de cargas y conservación de respaldos.
+
+## Comprobación final en tus dispositivos
+
+1. Publicar en la misma dirección, abrir con internet y cerrar todas las ventanas de Tecma. Reabrir y comprobar Versión 2.1.0 y Lista para usar sin conexión.
+2. Verificar cargas y obras existentes sin importar ningún respaldo para actualizar.
+3. Probar un código desconocido por cámara y lector real: Agregar como producto, Completar después y siguiente escaneo. Completar sus campos después desde Productos.
+4. Compartir Cierre para Control (.txt), elegir WhatsApp e importar ese mismo archivo en Control de la laptop.
+5. Guardar fuera del dispositivo el respaldo ofrecido; repetir apertura, escaneo y generación de PDF en modo avión.
+
+---
+
 # Verificación de Tecma Despachos 2.0.2
 
 Fecha: 4 de octubre de 2026.
