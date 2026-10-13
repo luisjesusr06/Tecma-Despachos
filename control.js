@@ -99,7 +99,7 @@ window.TecmaControl=(()=>{
       const added=preview.rows.filter(p=>!existing.has(p.numero)).map(p=>({...p,id:T.uid(),projectId:project.id,raw:zebraRaw(project,p,preview.sourceFormat),description:p.detalle,note:'',status:'pendiente en fábrica',dispatchDate:null,returnedAt:null,createdAt:at,zebraMissing:false}));
       if(added.length)await db.products.bulkAdd(added);
       await Promise.all(changes.map(({id,patch})=>db.products.update(id,patch)));
-      await db.projects.update(project.id,{zebraUpdatedAt:at,zebraRevision:(project.zebraRevision||0)+1});
+      await db.projects.update(project.id,{zebraUpdatedAt:at,catalogIncomplete:false,zebraRevision:(project.zebraRevision||0)+1});
       return {...zebraSummary(project,products,preview.rows),updatedAt:at};
     });
   }
@@ -133,6 +133,7 @@ window.TecmaControl=(()=>{
     if(!works.size)throw new Error(`El cierre es de otra obra. Obra abierta: ${project.obra}.`);
     const origin=c.load.sourceId||c.load.id;let added=0,ignored=0;
     await db.transaction('rw',tables,async()=>{
+      if(await db.records.where('[projectId+origin]').equals([projectId,origin]).count()){ignored=c.products.length;return;}
       for(const source of c.products.filter(p=>works.has(p.workId))){
         // Un pendiente nunca revierte un despacho existente.
         if(!source.scannedAt&&!source.returnedAt){ignored++;continue;}
@@ -171,7 +172,8 @@ window.TecmaControl=(()=>{
   async function registryProject(source){
     const matches=(await db.projects.where('key').equals(T.obraKey(source.obra)).toArray()).filter(p=>opKey(p.op)===opKey(source.op)).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
     let p=matches.find(p=>(p.registrySources||[]).includes(source.sourceId||source.id))||matches[0];
-    if(!p){p={id:T.uid(),key:T.obraKey(source.obra),obra:source.obra,op:source.op,createdAt:source.createdAt||T.now(),format:source.format||defaultFormat};await db.projects.add(p);}
+    if(!p){p={id:T.uid(),key:T.obraKey(source.obra),obra:source.obra,op:source.op,createdAt:source.createdAt||T.now(),format:source.format||defaultFormat,catalogIncomplete:!!source.catalogIncomplete,catalogFromRegistry:true};await db.projects.add(p);}
+    if(p.catalogFromRegistry&&!p.zebraUpdatedAt&&p.catalogIncomplete&&!source.catalogIncomplete){await db.projects.update(p.id,{catalogIncomplete:false});p.catalogIncomplete=false;}
     const sources=[...new Set([...(p.registrySources||[]),source.sourceId||source.id])];if(JSON.stringify(sources)!==JSON.stringify(p.registrySources||[]))await db.projects.update(p.id,{registrySources:sources});return p;
   }
   async function importRegistry(input){
@@ -188,17 +190,17 @@ window.TecmaControl=(()=>{
           const payload={load,works,products,accessories,events},signature=JSON.stringify(payload),revisionAt=[load.updatedAt,load.createdAt,...products.map(p=>p.updatedAt),...accessories.map(a=>a.updatedAt),...events.map(e=>e.at)].filter(Boolean).sort().at(-1);
           const old=await db.records.where('[projectId+origin]').equals([projectId,origin]).first();
           if(old&&(revisionAt<old.revisionAt||JSON.stringify(old.payload)===signature||revisionAt===old.revisionAt&&r.exportedAt<=old.exportedAt))continue;
-          const beforeEvents=(await db.events.where('projectId').equals(projectId).toArray()).filter(e=>e.registryOrigin===origin),keys=new Set(),affected=new Set(beforeEvents.map(e=>e.productId)),name=T.loadName(load,works,products);
+          const beforeEvents=(await db.events.where('projectId').equals(projectId).toArray()).filter(e=>e.registryOrigin===origin||e.sourceLoad===origin),keys=new Set(),eventIds=new Set(),affected=new Set(beforeEvents.map(e=>e.productId)),name=T.loadName(load,works,products);
           for(const row of products){if(!row.scannedAt&&!row.returnedAt)continue;let p=existing.get(row.numero);if(!p){p={...row,id:T.uid(),projectId,status:'pendiente en fábrica',dispatchDate:null,note:''};delete p.loadId;delete p.workId;await db.products.add(p);existing.set(p.numero,p);}
             affected.add(p.id);
-            for(const [kind,at]of [['dispatch',row.scannedAt],['return',row.returnedAt]])if(at){const sourceKey=JSON.stringify(['registro',origin,row.numero,kind]);keys.add(sourceKey);const event=beforeEvents.find(e=>e.sourceKey===sourceKey);await db.events.put({id:event?.id||T.uid(),projectId,productId:p.id,sourceLoad:origin,registryOrigin:origin,loadName:name,description:row.description,kind,at,sourceKey});if(!event)added++;}
+            for(const [kind,at]of [['dispatch',row.scannedAt],['return',row.returnedAt]])if(at){const sourceKey=JSON.stringify(['registro',origin,row.numero,kind]);keys.add(sourceKey);const event=beforeEvents.find(e=>e.sourceKey===sourceKey||e.productId===p.id&&e.kind===kind),id=event?.id||T.uid();eventIds.add(id);await db.events.put({id,projectId,productId:p.id,sourceLoad:origin,registryOrigin:origin,loadName:name,description:row.description,kind,at,sourceKey});if(!event)added++;}
             const notesByLoad={...(p.notesByLoad||{}),[origin]:T.clean(row.note)},manualNote=p.manualNote??(!p.notesByLoad?p.note||'':'');Object.assign(p,{notesByLoad,manualNote,note:[...new Set([manualNote,...Object.values(notesByLoad)].filter(Boolean))].join(' · ')});await db.products.update(p.id,{notesByLoad,manualNote,note:p.note});
           }
-          for(const ev of beforeEvents)if(!keys.has(ev.sourceKey))await db.events.delete(ev.id);
+          for(const ev of beforeEvents)if(!eventIds.has(ev.id))await db.events.delete(ev.id);
           for(const id of affected)await recompute(id);
-          const previousAccessories=(await db.accessories.where('projectId').equals(projectId).toArray()).filter(a=>a.registryOrigin===origin),accessoryKeys=new Set();
-          for(const a of accessories){const sourceKey=JSON.stringify(['registro',origin,'accessory',a.sourceId||a.id]);accessoryKeys.add(sourceKey);const oldAccessory=previousAccessories.find(x=>x.sourceKey===sourceKey);await db.accessories.put({...a,id:oldAccessory?.id||T.uid(),projectId,sourceKey,registryOrigin:origin,at:load.closedAt||load.createdAt,kind:'dispatch',loadName:name});}
-          for(const a of previousAccessories)if(!accessoryKeys.has(a.sourceKey))await db.accessories.delete(a.id);
+          const previousAccessories=(await db.accessories.where('projectId').equals(projectId).toArray()).filter(a=>a.registryOrigin===origin||a.sourceKey?.startsWith(origin+':accessory:')),accessoryIds=new Set();
+          for(const a of accessories){const sourceKey=JSON.stringify(['registro',origin,'accessory',a.sourceId||a.id]);const oldAccessory=previousAccessories.find(x=>x.sourceKey===sourceKey||[origin+':accessory:'+(a.sourceId||a.id),origin+':accessory:'+a.id].includes(x.sourceKey)),id=oldAccessory?.id||T.uid();accessoryIds.add(id);await db.accessories.put({...a,id,projectId,sourceKey,registryOrigin:origin,at:load.closedAt||load.createdAt,kind:'dispatch',loadName:name});}
+          for(const a of previousAccessories)if(!accessoryIds.has(a.id))await db.accessories.delete(a.id);
           await db.records.put({id:old?.id||T.uid(),projectId,origin,revisionAt,exportedAt:r.exportedAt,payload});updated++;
         }
       }

@@ -11,7 +11,7 @@ window.Tecma = (() => {
     });
   });
   db.version(3).stores({loads:'id,status,createdAt,projectId',works:'id,loadId,[loadId+key]',products:'id,loadId,workId,projectId,numero,[loadId+numero],[workId+numero]',projects:'id,key,createdAt',catalog:'id,projectId,[projectId+numero]'});
-  const editable=load=>{if(!load)throw new Error('No se encontró el despacho.');if(load.model!=='obra-v1')throw new Error('Esta carga antigua se conserva en solo lectura.');return load;};
+  const editable=load=>{if(!load)throw new Error('No se encontró el despacho.');if(load.model!=='obra-v1')throw new Error('El despacho todavía no está integrado a su obra.');return load;};
   function migrateProduct(p){
     if(p.status==='no enviado') {p.status='pendiente';p.note=[p.note,p.reason].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');p.reason='';}
     p.note=p.note||'';
@@ -94,49 +94,6 @@ window.Tecma = (() => {
     const first=parsed.works[0];if(!first)return null;
     const same=parsed.works.filter(w=>obraKey(w.obra)===obraKey(first.obra)),codes=new Set();
     return {...first,op:[...new Set(same.map(w=>w.op).filter(Boolean))].join(', '),include:true,products:same.flatMap(w=>w.products.map(p=>({...p,op:p.op||w.op}))).filter(p=>{if(codes.has(p.numero))return false;codes.add(p.numero);return true;})};
-  }
-  async function carryCandidates(obra){
-    const closed=new Map((await db.loads.where('status').equals('closed').toArray()).map(l=>[l.id,l]));
-    const works=(await db.works.toArray()).filter(w=>closed.has(w.loadId)&&obraKey(w.obra)===obraKey(obra));
-    const all=await db.products.toArray();
-    return works.map(w=>({work:w,load:closed.get(w.loadId),products:all.filter(p=>p.workId===w.id&&['pendiente','devuelto'].includes(p.status))})).filter(g=>g.products.length).map(g=>({...g,name:loadName(g.load,[g.work],all.filter(p=>p.workId===g.work.id))}));
-  }
-  async function commitDraft(draft,loadId,savedDraftKey){
-    return db.transaction('rw',txTables,async()=>{
-      // Nuevas cargas: una obra. Las cargas antiguas se conservan completas.
-      const group=firstWork({works:draft.works})||{obra:'Sin obra',op:'',products:[]};
-      let load=loadId?await assertOpen(loadId):{id:uid(),createdAt:now(),status:'open',closedAt:null};
-      Object.assign(load,{chofer:clean(draft.chofer),rutChofer:clean(draft.rutChofer),patente:clean(draft.patente),scheduledDate:clean(draft.scheduledDate),label:clean(draft.label),updatedAt:now(),csvFormat:draft.csvFormat||null});
-      await db.loads.put(load);
-      let work=loadId?await db.works.where('loadId').equals(load.id).first():null;
-      if(!work){work={id:uid(),loadId:load.id,key:workKey(group.obra,group.op),obra:group.obra,op:group.op,rutCliente:clean(group.rutCliente),direccion:clean(group.direccion),comuna:clean(group.comuna),constructora:clean(group.constructora)};await db.works.add(work);}
-      const existing=new Map((await db.products.where('loadId').equals(load.id).toArray()).map(p=>[p.numero,p]));
-      let added=0,skipped=0;
-      for(const p of group.products){
-        if(existing.has(p.numero)){skipped++;continue;}
-        const row={...p,id:uid(),workId:work.id,loadId:load.id,description:p.detalle,atril:'',status:'pendiente',reason:'',note:'',scannedAt:null,lastEvent:null,createdAt:now(),updatedAt:now()};
-        await db.products.add(row);existing.set(row.numero,row);added++;
-      }
-      for(const id of new Set(draft.carryIds||[])){
-        const old=await db.products.get(id);if(!old||!['pendiente','devuelto'].includes(old.status))continue;
-        const oldLoad=await db.loads.get(old.loadId),oldWork=await db.works.get(old.workId);
-        if(oldLoad?.status!=='closed'||obraKey(oldWork?.obra)!==obraKey(work.obra))continue;
-        const sourceProducts=await db.products.where('loadId').equals(old.loadId).toArray();
-        const origin={loadId:old.loadId,productId:old.id,name:loadName(oldLoad,[oldWork],sourceProducts),at:now()};
-        let row=existing.get(old.numero);
-        if(row){row={...row,note:[row.note,old.note].filter(Boolean).join(' · '),carryFrom:[...(row.carryFrom||[]),origin]};await db.products.put(row);}
-        else {row={...old,id:uid(),loadId:load.id,workId:work.id,status:'pendiente',scannedAt:null,returnedAt:null,transferredTo:null,lastEvent:null,carryFrom:[origin],createdAt:now(),updatedAt:now()};await db.products.add(row);added++;}
-        existing.set(row.numero,row);
-        await db.products.update(old.id,{status:'trasladado',transferredTo:{loadId:load.id,productId:row.id},updatedAt:now()});
-        await db.events.add({id:uid(),loadId:old.loadId,productId:old.id,kind:'transfer',at:now(),toLoadId:load.id,before:snapshot(old),after:{status:'trasladado'}});
-      }
-      load.name=loadName(load,[work],[...existing.values()]);await db.loads.put(load);
-      // Conservamos también el nombre de destino si más adelante se elimina su carga.
-      for(const id of draft.carryIds||[]){const old=await db.products.get(id);if(old?.transferredTo?.loadId===load.id)await db.products.update(id,{'transferredTo.name':load.name});}
-      await db.events.add({id:uid(),loadId:load.id,at:now(),kind:'import',added,skipped});
-      await db.meta.delete(savedDraftKey||(loadId?`draft:${loadId}`:'draft:new'));
-      return {loadId:load.id,added,skipped};
-    });
   }
   async function loadData(loadId){const load=await db.loads.get(loadId);if(!load)throw new Error('No se encontró la carga.');const [works,products,accessories]=await Promise.all([db.works.where('loadId').equals(loadId).toArray(),db.products.where('loadId').equals(loadId).toArray(),db.accessories.where('loadId').equals(loadId).toArray()]);works.sort((a,b)=>natural.compare(a.obra,b.obra)||natural.compare(a.op,b.op));accessories.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.id.localeCompare(b.id));load.name=loadName(load,works,products);return {load,works,products,accessories};}
   function counts(products){return {total:products.filter(p=>p.status!=='trasladado').length,cargado:products.filter(p=>p.status==='cargado').length,pendiente:products.filter(p=>p.status==='pendiente').length,devuelto:products.filter(p=>p.status==='devuelto').length,trasladado:products.filter(p=>p.status==='trasladado').length};}
@@ -224,7 +181,7 @@ window.Tecma = (() => {
   async function deleteAccessory(id){return db.transaction('rw',db.loads,db.accessories,db.events,async()=>{const a=await db.accessories.get(id);if(!a)return;await assertOpen(a.loadId);await db.accessories.delete(id);await db.events.add({id:uid(),loadId:a.loadId,at:now(),kind:'accessory-delete',accessoryId:id,before:a});});}
   async function setClosed(loadId,closed){return db.transaction('rw',db.loads,db.events,async()=>{const l=editable(await db.loads.get(loadId));const at=now();await db.loads.update(loadId,{status:closed?'closed':'open',closedAt:closed?at:null,updatedAt:at});await db.events.add({id:uid(),loadId,at,kind:closed?'close':'reopen'});});}
   async function deleteLoad(id){return db.transaction('rw',txTables,async()=>{editable(await db.loads.get(id));for(const table of [db.works,db.products,db.accessories,db.events])await table.where('loadId').equals(id).delete();await db.loads.delete(id);await db.meta.delete(`draft:${id}`);});}
-  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:3,projects:await db.projects.toArray(),catalog:await db.catalog.toArray(),exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:await db.meta.where('key').startsWith('draft:').toArray()}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
+  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:3,transition:(await db.meta.get('model:obra-v1'))?.value||null,projects:await db.projects.toArray(),catalog:await db.catalog.toArray(),exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:await db.meta.where('key').startsWith('draft:').toArray()}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
   function validateBackup(b){
     const fail=()=>{throw new Error('El respaldo no es válido o está incompleto. No se cambió ningún dato.');};
     if(!b||b.app!=='tecma-despachos'||![1,2,3].includes(b.version))fail();
@@ -256,6 +213,7 @@ window.Tecma = (() => {
         }
       }
     }
+    if(b.transition&&(!b.transition.completed||!Number.isFinite(Date.parse(b.transition.at))))fail();
     return b;
   }
   async function restoreBackup(input){
@@ -263,6 +221,7 @@ window.Tecma = (() => {
     const remap=r=>{if(!r||typeof r!=='object')return r;if(Array.isArray(r))return r.map(remap);const out={};for(const[k,v]of Object.entries(r)){if(['__proto__','constructor','prototype'].includes(k))continue;const table={loadId:'loads',workId:'works',productId:'products',accessoryId:'accessories',catalogId:'catalog',lastEvent:'events',undoes:'events',toLoadId:'loads',projectId:'projects'}[k];out[k]=table?(maps[table].get(v)||null):remap(v);}return out;};
     const controlCopy=b.control&&window.TecmaControl?await TecmaControl.restoreBackup(b.control):null;
     try{await db.transaction('rw',txTables,async()=>{for(const name of ['loads','works','products','accessories','events','projects','catalog']){const rows=(b[name]||[]).map(r=>({...remap(r),...(['loads','projects','accessories','events'].includes(name)?{sourceId:r.sourceId||r.id}:{}),id:maps[name].get(r.id)}));if(rows.length)await db[name].bulkAdd(rows);}
+      if(window.TecmaObras){if(b.loads.some(l=>l.model!=='obra-v1'))await TecmaObras.integrateRows([...maps.loads.values()]);const existing=await db.meta.get('model:obra-v1');if(!existing?.value.completed)await db.meta.put({key:'model:obra-v1',value:b.transition||{completed:true,at:now(),version:'3.1.0'}});}
       for(const entry of b.drafts||[]){
         const oldLoad=entry.key.slice(6),mappedLoad=maps.loads.get(oldLoad);
         await db.meta.put({key:mappedLoad?`draft:${mappedLoad}`:`draft:recovered:${uid()}`,value:remap(entry.value)});
@@ -271,5 +230,5 @@ window.Tecma = (() => {
     }catch(err){if(controlCopy)await TecmaControl.removeRestored(controlCopy);throw err;}
     return b.loads.length;
   }
-  return {db,editable,migrateProduct,obraKey,localDate,ofis,ofiLabel,loadName,firstWork,carryCandidates,previousDispatch,returnProduct,scanUnknown,uid,now,clean,plain,normalizeNumber,natural,date,time,dateKey,esc,workKey,parseCSV,readCSV,assertOpen,commitDraft,loadData,counts,changeProduct,scanProduct,logScan,undoScan,saveAccessory,deleteAccessory,setClosed,deleteLoad,backup,validateBackup,restoreBackup};
+  return {db,editable,migrateProduct,obraKey,localDate,ofis,ofiLabel,loadName,firstWork,previousDispatch,returnProduct,scanUnknown,uid,now,clean,plain,normalizeNumber,natural,date,time,dateKey,esc,workKey,parseCSV,readCSV,assertOpen,loadData,counts,changeProduct,scanProduct,logScan,undoScan,saveAccessory,deleteAccessory,setClosed,deleteLoad,backup,validateBackup,restoreBackup};
 })();

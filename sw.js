@@ -1,6 +1,6 @@
 'use strict';
 // Cambiar VERSION al publicar una actualización. Nunca borra IndexedDB.
-const VERSION='3.0.0';
+const VERSION='3.1.0';
 const PREFIX='tecma-despachos:'+self.registration.scope+':';
 const CACHE=PREFIX+VERSION;
 const ASSETS=[

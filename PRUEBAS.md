@@ -1,52 +1,49 @@
-# Verificación de Tecma Despachos 3.0.0
+# Verificación de Tecma Despachos 3.1.0
 
-79 comprobaciones automatizadas aprobadas sobre los archivos reales: 34 de datos y migración, 10 de importación e historial, 28 de interfaz y 7 de caché/escáner. Todos los JavaScript de la aplicación pasan node --check.
+93 comprobaciones automatizadas aprobadas sobre los archivos reales: 27 de integración y conservación de datos, 18 de bienvenida e interfaz, 7 de errores/concurrencia/OP combinadas, 24 de regresión del flujo de despacho, 10 de historial e importación y 7 de caché/escáner. JavaScript revisado con node --check.
+
+## Qué se comprobó
+
+- Detecta las cargas anteriores automáticamente. La bienvenida tiene Comenzar y no ofrece posponer ni omitir mediante otra URL.
+- Sin cargas anteriores abre Obras directamente, sin mensajes ni descargas.
+- Genera un respaldo completo antes de modificar los registros y ofrece descargar o compartir. Cancelar compartir no aplica cambios. Sin compartir exige una descarga explícita.
+- Conserva una copia del respaldo previo para recuperarla tras un reinicio o un error. Si falla guardar esa copia interna, mantiene disponible la copia generada en memoria para descargar.
+- Crea las obras que faltan, reutiliza las que ya existen por nombre y OP y conserva sus catálogos de Zebra.
+- Convierte todas las cargas en despachos con fechas, chofer, RUT y patente originales. Conserva códigos, tipos, descripciones, OFI, estados, horas, notas, accesorios y devoluciones.
+- Varias cargas de una obra quedan como viajes distintos. Cargas con varias obras u OP se reparten sin duplicar piezas ni accesorios. Una línea manual con OP combinada mantiene su atribución original, sin deducir otra.
+- Cada evento original conserva su hora y sus relaciones. Las líneas manuales mantienen cantidades y fechas y se ven en Material suelto.
+- Calcula el avance desde los escaneos y retornos originales. Las obras deducidas muestran Catálogo incompleto y cantidades conocidas, sin porcentaje global ni barra llena que sugiera totalidad.
+- La fusión con el CSV completo agrega los faltantes, conserva los viajes y devoluciones y quita la señal.
+- Fallar a mitad de la transacción revierte todas las tablas; muestra el error y conserva el respaldo. Reintentar completa sin duplicar.
+- Dos intentos simultáneos solo integran una vez. Una edición desde otra ventana invalida el respaldo desactualizado y requiere generar uno vigente antes de aplicar.
+- La marca de completado se guarda junto con los datos y viaja en los respaldos posteriores. Reabrir y restaurar uno de ellos no repite la bienvenida.
+- Restaurar un respaldo anterior integra sus copias dentro de la restauración, sin recrear un archivo antiguo. Un fallo conserva los despachos y la marca existentes.
+- No queda un apartado, enlace, botón ni ruta de archivo antiguo. La antigua URL vuelve al inicio.
+- Registro_Tecma incluye los viajes integrados con sus eventos y material. Reimportarlo no duplica. Si ya se había importado su cierre antiguo en Control, se reconoce la misma identidad y no se suma dos veces. Importar ese cierre de nuevo tampoco revierte el registro.
+- Se mantienen las pruebas de foco por OFI, verde fuera del foco, celeste por viaje anterior, desconocido cargado de inmediato, búsqueda, accesorios, exportación TXT, respaldo, devoluciones y administración de Control.
+
+## PDF y diseño
+
+Se generaron cuatro PDF con las bibliotecas locales reales: guía y control antes de integrar y los mismos documentos después. Los dos pares dieron imágenes idénticas píxel a píxel a 108 ppp; se revisaron visualmente ambas páginas. Se verificaron también las filas de la guía antes/después.
+
+styles.css y reports.js permanecen idénticos byte por byte a 3.0.0. Manifest, iconos y bibliotecas no cambian. Las pantallas nuevas usan clases existentes. Cámara, Code 128, Bluetooth, destello, marco, audio y vibración conservan sus bloques de código. No se realizó una comparación visual de pantallas en un navegador real.
+
+## Offline
+
+El service worker conserva los mismos recursos y la misma estrategia de 3.0.0; solo cambia la versión a 3.1.0. Con Cache API y red simuladas se comprobó precaché completa, entrega de todos los archivos sin red, recuperación de index.html y eliminación exclusiva de la caché anterior de Tecma. Ninguna activación borra IndexedDB.
 
 ## Entorno y límites
 
-Node, jsdom 26 y fake-indexeddb 6 con datos de prueba. Cámara, compartir, descargas y persistencia se simularon; el service worker usó Cache API y red simuladas. No se probaron aquí un navegador instalado en teléfono/laptop, WhatsApp real, cámara física ni lector Bluetooth físico. Las aplicaciones del selector de compartir dependen del dispositivo.
+Las pruebas de datos e interfaz usan Node, jsdom 26 y fake-indexeddb 6 con datos de prueba. Cámara, compartir, descargas, persistencia y red se simularon. No se probaron aquí cámara física, lector Bluetooth físico, menú real de WhatsApp ni instalación/actualización en los equipos del usuario. La app puede iniciar una descarga, pero el navegador no permite confirmar que el usuario terminó de guardarla fuera del sitio.
 
-Se generaron ocho PDF con las bibliotecas locales reales: guía y control de una carga antigua y un despacho nuevo, con 2.1.0 y 3.0.0. Los cuatro pares dieron imágenes idénticas píxel a píxel a 100 ppp. Se revisaron visualmente guía y control del despacho nuevo. La guía incluye la pieza fuera del foco y SIN DESCRIPCIÓN; el control conserva Agregados al escanear.
+La marca de integración es local y se conserva en los respaldos. Borrar todo el almacenamiento elimina tanto los datos como la marca; restaurar un respaldo posterior recupera ambos. No se introduce un servidor ni una identificación externa del dispositivo.
 
-styles.css y reports.js son idénticos byte por byte a 2.1.0. Manifest, iconos y bibliotecas no cambian. Los bloques de cámara, Code 128, Bluetooth, destello, marco, audio y vibración mantienen el código original. No se realizó una comparación visual de pantallas en un navegador real.
+## Comprobación en tus dispositivos
 
-## Datos, obras y escaneo
-
-- Subir de esquema conserva todas las filas antiguas de ambas bases y sus relaciones.
-- Cargas antiguas son de solo lectura en interfaz y operaciones de datos. Sus PDF permanecen disponibles.
-- CSV UTF-8, UTF-8 con BOM, UTF-16 LE/BE y Windows-1252 conservan ñ, acentos y PAÑO FIJO JUMBO y HOJA MOVIL CORREDERA GTi 2/1. Se detectan coma y punto y coma.
-- Una obra nueva crea catálogo completo. Repetir CSV informa existentes y no duplica. Vista previa y Cancelar no escriben. Un fallo durante la fusión revierte toda la operación.
-- Actualizar catálogo conserva estados, notas, fechas, historial y datos del PDF de despachos existentes. Los ausentes quedan señalados.
-- Nuevo despacho no exige campos. Otra OFI carga en verde sin diálogo, con igual vibración. El selector fijo muestra otra OFI sin salir y permite varias.
-- Un envío anterior da celeste y carga igual, incluso tras devolución. El mismo código en otra OP no hereda ese antecedente.
-- Desconocido mantiene tres opciones. Agregar como producto guarda cargado, incorpora al catálogo y devuelve el foco al cerrar el formulario.
-- El foco filtra la vista, no el despacho ni el PDF. El PDF está disponible antes de cerrar y no consulta ni exige completar el catálogo.
-- Historial permite regenerar PDF. Material suelto usa solo líneas y fechas registradas de viajes cerrados. Búsqueda ignora mayúsculas y tildes.
-
-## Registro, respaldo y Control
-
-- TXT text/plain contiene catálogo con estados, despachos, eventos y material; compartir recibe ese archivo.
-- Reimportar el mismo registro no cambia tablas ni duplica movimientos o accesorios.
-- Nombre y OP se distinguen. Actualiza una obra de Control existente y conserva movimientos manuales.
-- Varias visitas conservan notas de cada viaje y la nota manual previa. Una nueva exportación añade devolución sin duplicar envío.
-- Un registro anterior no revierte devoluciones ni notas posteriores.
-- Un fallo revierte productos, eventos, accesorios y marcadores juntos. Archivos inválidos no dejan datos parciales.
-- Cierres antiguos siguen aceptándose, crean su obra si falta y no duplican al repetirse.
-- Respaldo 3 restaura obras y despachos como copias, remapea relaciones y conserva identidad. Reexportar tras restaurar no duplica despachos ya importados.
-- Respaldos antiguos restauran como cargas antiguas. Control respalda sus marcadores e historial. Eliminar obra borra sus registros asociados y respeta las otras.
-- Cerrar ofrece respaldo sin modal ni bloqueo del PDF. Control conserva devoluciones, pegar números, renombrar y eliminar; ya no muestra Preparar próxima carga.
-- Sin errores JavaScript en los flujos comprobados.
-
-## Offline y actualización
-
-Precaché contiene todos los archivos y módulos nuevos. Con red simulada desconectada, todos se sirven desde caché y la navegación recupera index.html. Activar elimina únicamente la caché anterior de Tecma; no toca bases ni otras cachés. Solo cambian versión y dos recursos del service worker.
-
-## Comprobación final en tus equipos
-
-1. Guarda un respaldo externo en cada equipo. Publica en la misma dirección y conserva el perfil; no borres datos ni reinstales.
-2. Con internet, abre Tecma, busca actualización, cierra todas sus ventanas y pestañas y reabre. Confirma Versión 3.0.0 y Lista para usar sin conexión.
-3. Revisa Cargas antiguas y Control. Importa el CSV completo en el teléfono: comienza como catálogo nuevo sin convertir las cargas antiguas.
-4. Enfoca una OFI y prueba con cámara y lector una pieza de otra: verde, fuera del foco y presente en PDF. Prueba desconocido y Completar después.
-5. Cierra, guarda respaldo y abre otro despacho para comprobar celeste del número ya enviado.
-6. Exporta Registro_Tecma, compártelo por WhatsApp e impórtalo dos veces en Control; comprueba que la segunda vez no suma duplicados.
-7. En modo avión, reabre, busca una pieza, escanea y genera ambos PDF.
+1. Publica los archivos en la misma dirección. Con internet, busca actualización, cierra todas las ventanas y pestañas de Tecma y reabre. Confirma Versión 3.1.0.
+2. Si aparece la bienvenida, pulsa Comenzar y guarda el respaldo ofrecido. Comprueba el resumen y los viajes dentro de sus obras.
+3. Revisa fechas, productos, devoluciones y Material suelto. Regenera una guía conocida.
+4. Cierra y reabre: debe entrar directamente a Obras, sin bienvenida ni archivo antiguo.
+5. Completa una obra con su CSV entero; verifica la señal y el avance.
+6. Exporta Registro_Tecma e impórtalo dos veces en Control. Prueba también con un viaje cuyo cierre ya estaba registrado.
+7. Cuando indique Lista para usar sin conexión, prueba apertura, escaneo y PDF en modo avión.
