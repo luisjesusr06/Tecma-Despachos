@@ -1,42 +1,53 @@
-# Tecma Despachos 2.1.0
+# Tecma Despachos 3.0.0
 
-Actualización sobre la app original de este chat. Vanilla JavaScript, las mismas bibliotecas locales y el mismo diseño base.
+Actualización sobre Tecma Despachos 2.1.0. Conserva diseño, bibliotecas locales, lector y generador de PDF. No requiere servidor ni cuenta.
 
-## Publicar y usar
+## Actualizar
 
-Abre ACTUALIZAR.html para las instrucciones paso a paso de GitHub Pages, actualización sin borrar datos e instalación en Windows. El directorio que se publica es el que contiene index.html. No subas el ZIP sin extraer.
+Consulta ACTUALIZAR.html. Publica el contenido completo de esta carpeta en la misma dirección de GitHub Pages, incluidos los nuevos obras.js y obras-ui.js. Conserva el perfil del navegador y los datos del sitio. No hay que restaurar un respaldo para actualizar.
 
-## Cargas
+Con internet, abre la app, pulsa Buscar actualización, cierra todas sus ventanas y pestañas y vuelve a abrirla. Comprueba Versión 3.0.0 y Lista para usar sin conexión en ambos equipos.
 
-- Una obra y un CSV por carga nueva; primera obra si el CSV contiene varias.
-- Inicio: Preparadas, En curso y Cerradas, con nombre de obra, OFI, fecha y etiqueta opcional.
-- Carga activa: pendiente/cargado. Notas opcionales. Los registros históricos admiten devuelto/trasladado para devoluciones y arrastres.
-- El PDF está disponible sin cerrar ni completar datos. El aviso rojo de códigos válidos ausentes del CSV permite seguir escaneando, agregar como accesorio o agregar como producto cargado inmediatamente. Tipo, descripción y OFI son opcionales y se pueden editar después. Sin descripción se imprime SIN DESCRIPCIÓN. Los agregados usan productos e historial normales, no accesorios; el PDF de control tiene una sección propia.
-- Arrastre optativo de pendientes y devueltos de cargas cerradas de la misma obra.
-- Escaneo por cámara, Bluetooth HID + Enter o manual. Visor con destello, marco, contador e historial corto; señales diferenciadas.
-- Detalle: OFI en orden natural, Sin OFI al final, grupos por tipo y avance cargado/total. El sufijo numérico del Tipo entre paréntesis se oculta únicamente en el encabezado de pantalla: se conserva el texto original en datos, grupos y PDF. Búsqueda instantánea combinada con filtros, insensible a mayúsculas y tildes.
-- Al cerrar se generan guía, control, CSV de códigos y cierre TXT (JSON versión 1; MIME text/plain). Las devoluciones posteriores aparecen al volver a generar el cierre. Compartir invoca el selector del sistema por acción del usuario; su lista de aplicaciones depende del dispositivo. Cuando compartir falla se inicia descarga con aviso de nombre y ubicación.
+## Obras y despachos
 
-## Control
+- Obras es el inicio del teléfono. Importa una vez el CSV completo del Zebra, con todas las OFI. Un archivo con varias obras crea sus catálogos por nombre y OP.
+- Las cargas anteriores quedan en Cargas antiguas, en solo lectura, con productos, notas, historial, accesorios y PDF. No se convierten ni se suman al avance de las obras nuevas.
+- Nuevo despacho crea un viaje dentro de una obra. Fecha, chofer, RUT y patente son opcionales. El foco puede ser una OFI, varias o todas; solo filtra la vista. El escáner busca en el catálogo completo de esa obra.
+- Una pieza fuera del foco carga en verde, con el sonido y vibración normales, y añade «OFI … · fuera del foco». Una pieza enviada en un despacho anterior carga igual con la señal celeste. El desconocido mantiene las tres opciones, incluida Agregar como producto.
+- El producto desconocido queda cargado antes del formulario opcional y se añade al catálogo para los siguientes viajes. Sin descripción imprime SIN DESCRIPCIÓN. Cerrar el formulario devuelve el foco al lector.
+- El selector fijo permite revisar otra OFI sin abandonar el escáner. Productos mantiene búsqueda instantánea, filtros y agrupación por OFI y tipo.
+- Los PDF están disponibles con el despacho abierto y sin completar campos. reports.js es idéntico a 2.1.0. Los cargados de todas las OFI se incluyen aunque no estén en el foco. Al cerrar se preparan guía, control y códigos escaneados; ya no hay un archivo de cierre individual en la interfaz.
+- Despachos anteriores permite continuar viajes abiertos y regenerar PDF. Material suelto reúne únicamente líneas manuales de viajes cerrados, agrupadas por descripción y unidad, con totales y fechas.
+- El avance usa el último envío o devolución de cada número en despachos cerrados. Los viajes en curso no cuentan aún como enviados. Devueltos tiene su propio segmento.
 
-Aparece con al menos 1000 px de ancho de ventana. Base local independiente TecmaControl_v1. Permite importar el CSV completo, importar cierres, marcar despachos con fecha, pegar números, registrar devoluciones y administrar accesorios/MIT. Los cierres repetidos no duplican sus movimientos. Se reconstruye el historial cronológicamente aunque los archivos se importen fuera de orden. Preparar próxima carga conserva las columnas, los valores originales y el separador del Zebra.
+## Actualizar desde Zebra
 
-Actualizar desde Zebra fusiona por el número del código de barras, con una vista previa y confirmación. Los existentes conservan estados, fechas, notas e historial; solo se actualizan descripción, tipo y orden. Los nuevos ingresan pendientes en fábrica. Los ausentes se conservan con la señal «ya no está en el Zebra» y un filtro propio; la señal desaparece si vuelven a aparecer en otro CSV. Cancelar no guarda nada. La fecha de la última actualización se muestra en cada obra. Repetir el CSV no duplica productos.
+La identidad de obra usa nombre y OP; la de producto, el número normalizado del código de barras. Una obra existente muestra el resumen antes de guardar. Aplicar fusiona y Cancelar no escribe nada. Los existentes conservan estados, fechas, notas e historial; solo cambian descripción, tipo y OFI del catálogo. Los nuevos ingresan pendientes. Los ausentes se conservan con la señal «ya no está en el Zebra», incluso con CSV parcial; la señal desaparece si vuelven a aparecer. Se conserva la fecha de actualización.
 
-La lista de obras muestra fecha de creación y cantidad de productos en tarjetas alineadas, más una barra delgada con los mismos tres colores de la vista general. El porcentaje despachado usa el número actualmente en obra / total; los devueltos tienen su propio segmento. La papelera de cada tarjeta y el botón Eliminar obra permiten borrar esa obra con sus productos, historial y accesorios después de confirmar; las cargas y otras obras permanecen intactas. Renombrar obra cambia solo su nombre visible: conserva el nombre original para Zebra y cierres. Al importar el mismo nombre y OP, se puede actualizar la existente mediante la fusión, crear otra de forma explícita o cancelar. Si hay varios duplicados, se elige cuál actualizar.
+Cada despacho guarda sus propios datos: actualizar el catálogo no cambia sus documentos históricos. Los nuevos números quedan disponibles en un despacho abierto sin restringir el escáner por el foco.
 
-## Datos y actualización
+La lectura acepta BOM UTF-8, UTF-16 LE y UTF-16 BE; sin BOM intenta UTF-8 estricto y vuelve a Windows-1252 si los bytes son inválidos o hay caracteres de reemplazo. La detección de separador y la normalización del número mantienen su implementación anterior.
 
-Se conservan TecmaDespachos_v1 (esquema 2) y TecmaControl_v1 (esquema 1). 2.1.0 no añade migraciones ni cambia índices, tablas o IDs. Quien venga de la primera versión conserva la migración transaccional original de 1 a 2. No enviado pasa a pendiente y el motivo se conserva como nota. Las cargas antiguas de varias obras se mantienen completas y generan documentos conjuntos con la OP de cada línea.
+## Registro para la laptop
 
-El respaldo completo incluye ambas bases. Al cerrar una carga o importar un cierre se prepara automáticamente un TXT text/plain y se ofrece descargar/compartir sin abrir un diálogo. Se conserva la copia pendiente en meta hasta exportarla o generar otra más reciente; esa copia no se incluye recursivamente en los respaldos. La fecha del inicio corresponde al último respaldo generado; el aviso pendiente recuerda que hay que guardarlo fuera de la app. Después de 7 días aparece una invitación discreta. Los errores de respaldo nunca revierten el cierre ni la importación ya guardados. Se solicita navigator.storage.persist() al arrancar, sin esperar respuesta ni mostrar errores.
+Exportar todo lo enviado genera Registro_Tecma_AAAA-MM-DD.txt, JSON con MIME text/plain. Incluye todas las obras nuevas, catálogo con estados, despachos, productos, fechas, movimientos, devoluciones y material suelto. Conserva también viajes en curso en el archivo; Control solo los incorpora como envíos cuando estén cerrados. Las cargas antiguas permanecen en el respaldo completo y su archivo de consulta.
 
-Los selectores de cierres y respaldos aceptan tanto .txt como .json.  La restauración admite las versiones 1 y 2, agrega copias y remapea sus relaciones. Primero valida la integridad; si falla la restauración de las cargas, revierte las copias de Control creadas en esa operación.
+En Control, Importar Registro_Tecma o cierres acepta el registro acumulado y cierres antiguos .txt/.json. Identifica obras por nombre y OP, viajes por identidad estable y productos por número. Repetir no duplica productos, movimientos ni accesorios; una exportación posterior incorpora cambios y una anterior no revierte viajes más recientes. Renombrar conserva el nombre de origen. Si ya hay duplicados antiguos, se reutiliza el previamente vinculado o, en su defecto, el más antiguo.
 
-No hay login, analítica, servidor de datos, sincronización ni envíos automáticos. Compartir o descargar es una acción del usuario. HTTPS es necesario para la cámara y el service worker, excepto localhost para desarrollo. Todos los scripts y bibliotecas se sirven localmente.
+Control conserva vista por OFI, productos, notas, accesorios y MIT, devoluciones, pegar números, renombrar y eliminar. Se retiró Preparar próxima carga y su exportación CSV. No existe sincronización automática: envía e importa el registro cuando lo necesites. Compartir usa el selector del sistema; las aplicaciones disponibles dependen del dispositivo. Si no es posible, se descarga el archivo y se explica dónde buscarlo.
 
-## Archivos
+## Conservación y respaldo
 
-core.js: base de cargas, migración, CSV y transacciones. app.js: interfaz y escaneo. reports.js: PDF, códigos y cierre. control.js: base de Control. control-ui.js: interfaz de Control. styles.css: idéntico a 2.0.2; todos los elementos nuevos reutilizan sus clases. sw.js: caché offline 2.1.0; conserva la estrategia de actualización al cerrar todas las ventanas. manifest.json, icons y lib permanecen sin cambios.
+TecmaDespachos_v1 pasa al esquema 3: añade projects, catalog e índices de relación, sin reescribir filas anteriores. TecmaControl_v1 pasa al esquema 2: añade records para conservar la identidad de importación y los datos originales. No cambia el nombre de las bases.
 
-Consulta PRUEBAS.md para resultados y limitaciones de la verificación.
+El respaldo completo versión 3 incluye ambas bases: obras, catálogos, despachos, cargas antiguas, notas, accesorios, eventos y Control. Sigue aceptando versiones 1 y 2, .txt o .json. Restaurar valida primero y agrega copias sin borrar originales; remapea relaciones y conserva la identidad de los despachos para no duplicar sus envíos al reexportarlos.
+
+Cerrar un despacho o importar un registro/cierre prepara un respaldo TXT y ofrece guardarlo sin interrumpir el escáner ni condicionar los PDF. La fecha del inicio indica el último respaldo generado: compártelo o descárgalo para tener una copia fuera de la app. Después de siete días aparece un recordatorio discreto. Se solicita almacenamiento persistente al iniciar, sin bloquear si se rechaza.
+
+El service worker conserva su estrategia y solo cambia a 3.0.0 y precarga los dos módulos nuevos. Todos los recursos siguen siendo locales. No hay login, analítica ni envíos automáticos. No borres datos del sitio, no desinstales para actualizar y no publiques una versión anterior después de actualizar las bases.
+
+## Archivos y pruebas
+
+core.js: datos, CSV, transacciones y respaldos. obras.js: catálogo, despachos y registro. obras-ui.js: pantallas de obras. app.js: interfaz y escaneo. control.js y control-ui.js: Control. reports.js y styles.css permanecen idénticos a 2.1.0, igual que manifest, iconos y bibliotecas.
+
+PRUEBAS.md describe las 79 comprobaciones automatizadas, la comparación de PDF y los límites de la verificación.

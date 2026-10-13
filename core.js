@@ -10,6 +10,8 @@ window.Tecma = (() => {
       for(const k of ['before','after']) if(event[k]?.status==='no enviado') migrateProduct(event[k]);
     });
   });
+  db.version(3).stores({loads:'id,status,createdAt,projectId',works:'id,loadId,[loadId+key]',products:'id,loadId,workId,projectId,numero,[loadId+numero],[workId+numero]',projects:'id,key,createdAt',catalog:'id,projectId,[projectId+numero]'});
+  const editable=load=>{if(!load)throw new Error('No se encontró el despacho.');if(load.model!=='obra-v1')throw new Error('Esta carga antigua se conserva en solo lectura.');return load;};
   function migrateProduct(p){
     if(p.status==='no enviado') {p.status='pendiente';p.note=[p.note,p.reason].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');p.reason='';}
     p.note=p.note||'';
@@ -66,12 +68,15 @@ window.Tecma = (() => {
     return {works:[...works.values()],ignored,duplicates,delimiter:result.meta.delimiter,headers,columns,bom:String(arguments[0]).startsWith('\uFEFF'),newline:result.meta.linebreak||'\r\n',sepLine:!!sep};
   }
   async function readCSV(file){
-    const buffer=await file.arrayBuffer();let text=new TextDecoder('utf-8').decode(buffer);
-    if(text.includes('\uFFFD'))text=new TextDecoder('windows-1252').decode(buffer);
+    const buffer=await file.arrayBuffer(),bytes=new Uint8Array(buffer);let text;
+    if(bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf)text=new TextDecoder('utf-8').decode(buffer);
+    else if(bytes[0]===0xff&&bytes[1]===0xfe)text=new TextDecoder('utf-16le').decode(buffer);
+    else if(bytes[0]===0xfe&&bytes[1]===0xff)text=new TextDecoder('utf-16be').decode(buffer);
+    else {try{text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);if(text.includes('\uFFFD'))throw new Error('Reemplazo Unicode');}catch{text=new TextDecoder('windows-1252').decode(buffer);}}
     return parseCSV(text,file.name);
   }
-  async function assertOpen(loadId){const load=await db.loads.get(loadId);if(!load)throw new Error('Esta carga ya no existe.');if(load.status!=='open'){await db.loads.update(loadId,{status:'open',closedAt:null,updatedAt:now()});load.status='open';load.closedAt=null;}return load;}
-  const txTables=[db.loads,db.works,db.products,db.accessories,db.events,db.meta];
+  async function assertOpen(loadId){const load=editable(await db.loads.get(loadId));if(load.status!=='open'){await db.loads.update(loadId,{status:'open',closedAt:null,updatedAt:now()});load.status='open';load.closedAt=null;}return load;}
+  const txTables=[db.loads,db.works,db.products,db.accessories,db.events,db.meta,db.projects,db.catalog];
   const obraKey=v=>plain(v).replace(/\s+/g,' ');
   const localDate=v=>new Date(/^\d{4}-\d{2}-\d{2}$/.test(v||'')?v+'T12:00:00':v||now());
   function ofis(products){return [...new Set(products.map(p=>clean(p.orden).replace(/^OFI?\s*/i,'')).filter(Boolean))].sort(natural.compare);}
@@ -137,9 +142,9 @@ window.Tecma = (() => {
   function counts(products){return {total:products.filter(p=>p.status!=='trasladado').length,cargado:products.filter(p=>p.status==='cargado').length,pendiente:products.filter(p=>p.status==='pendiente').length,devuelto:products.filter(p=>p.status==='devuelto').length,trasladado:products.filter(p=>p.status==='trasladado').length};}
   const snapshot=p=>({status:p.status,reason:p.reason||'',note:p.note||'',scannedAt:p.scannedAt,returnedAt:p.returnedAt||null,description:p.description,tipo:p.tipo,orden:p.orden,atril:p.atril,lastEvent:p.lastEvent});
   async function changeProduct(id,patch,kind='edit',source='detalle'){
-    return db.transaction('rw',db.loads,db.products,db.events,async()=>{
+    return db.transaction('rw',db.loads,db.products,db.events,db.catalog,async()=>{
       const p=await db.products.get(id);if(!p)throw new Error('El producto ya no existe.');
-      const load=await db.loads.get(p.loadId);if(!load)throw new Error('La carga ya no existe.');
+      const load=editable(await db.loads.get(p.loadId));
       const at=now(),eventId=uid(),before=snapshot(p);
       if(patch.status&&['pendiente','cargado'].includes(patch.status)){
         p.status=patch.status;p.scannedAt=p.status==='cargado'?(before.status==='cargado'?p.scannedAt:at):null;
@@ -151,36 +156,40 @@ window.Tecma = (() => {
       if(patch.atril!==undefined)p.atril=clean(patch.atril);
       if(patch.note!==undefined)p.note=clean(patch.note);
       p.reason='';p.updatedAt=at;p.lastEvent=eventId;
+      if(p.unknown&&p.projectId&&['tipo','orden','description'].some(k=>patch[k]!==undefined)){const original=await db.catalog.where('[projectId+numero]').equals([p.projectId,p.numero]).first();if(original)await db.catalog.update(original.id,{tipo:p.tipo,orden:p.orden,description:p.description,detalle:p.description,updatedAt:at});}
       await db.products.put(p);await db.events.add({id:eventId,loadId:p.loadId,productId:p.id,at,kind,source,before,after:snapshot(p),undone:false});return p;
     });
   }
   async function previousDispatch(p){
     const matches=await db.products.where('numero').equals(p.numero).toArray(),found=[];
-    for(const old of matches){if(old.loadId===p.loadId||old.status!=='cargado')continue;const l=await db.loads.get(old.loadId);if(l?.status==='closed')found.push({load:l,date:l.closedAt||old.scannedAt});}
+    for(const old of matches){if(old.loadId===p.loadId||!old.scannedAt||old.projectId!==p.projectId)continue;const l=await db.loads.get(old.loadId);if(l?.status==='closed')found.push({load:l,date:l.closedAt||old.scannedAt});}
     const latest=found.sort((a,b)=>b.date.localeCompare(a.date))[0];if(!latest)return null;
     const l=latest.load;let name=l.name;
     if(!name){const works=await db.works.where('loadId').equals(l.id).toArray(),products=await db.products.where('loadId').equals(l.id).toArray();name=loadName(l,works,products);}
     return {id:l.id,name,date:latest.date};
   }
   async function scanProduct(id,source){
-    return db.transaction('rw',db.loads,db.works,db.products,db.events,async()=>{
+    return db.transaction('rw',db.loads,db.works,db.products,db.events,db.catalog,async()=>{
       const p=await db.products.get(id);if(!p)throw new Error('El producto ya no existe.');
+      editable(await db.loads.get(p.loadId));
       if(p.status==='cargado'){await db.events.add({id:uid(),loadId:p.loadId,productId:id,at:now(),kind:'scan-duplicate',source,numero:p.numero});return {kind:'duplicate',product:p};}
       const previous=await previousDispatch(p);
       return {kind:previous?'previous':'success',previous,product:await changeProduct(id,{status:'cargado'},'scan',source)};
     });
   }
   async function scanUnknown(loadId,numero,source){
-    return db.transaction('rw',db.loads,db.works,db.products,db.events,async()=>{
+    return db.transaction('rw',db.loads,db.works,db.products,db.events,db.catalog,async()=>{
       const existing=await db.products.where('[loadId+numero]').equals([loadId,numero]).first();if(existing)return scanProduct(existing.id,source);
-      const work=await db.works.where('loadId').equals(loadId).first();
-      const p={id:uid(),loadId,workId:work.id,numero,tipo:'',detalle:'',description:'SIN DESCRIPCIÓN',orden:'',familia:'',subfamilia:'',atril:'',reason:'',note:'',unknown:true,status:'pendiente',scannedAt:null,lastEvent:null,createdAt:now(),updatedAt:now()};
+      const load=editable(await db.loads.get(loadId)),work=await db.works.where('loadId').equals(loadId).first();
+      const p={projectId:load.projectId,id:uid(),loadId,workId:work.id,numero,tipo:'',detalle:'',description:'SIN DESCRIPCIÓN',orden:'',familia:'',subfamilia:'',atril:'',reason:'',note:'',unknown:true,status:'pendiente',scannedAt:null,lastEvent:null,createdAt:now(),updatedAt:now()};
+      const old=await db.catalog.where('[projectId+numero]').equals([load.projectId,numero]).first();if(!old)await db.catalog.add({...p,id:uid(),loadId:undefined,workId:undefined});
       await db.products.add(p);return {kind:'unknown',product:await changeProduct(p.id,{status:'cargado'},'scan',source)};
     });
   }
   async function returnProduct(id,at=now(),source='lista'){
-    return db.transaction('rw',db.loads,db.products,db.events,async()=>{
+    return db.transaction('rw',db.loads,db.products,db.events,db.catalog,async()=>{
       const p=await db.products.get(id);if(!p)throw new Error('Producto no encontrado.');
+      editable(await db.loads.get(p.loadId));
       if(p.status==='devuelto')return {kind:'duplicate',product:p};
       const before=snapshot(p),eventId=uid();Object.assign(p,{status:'devuelto',returnedAt:at,updatedAt:now(),lastEvent:eventId});
       await db.products.put(p);await db.events.add({id:eventId,loadId:p.loadId,productId:p.id,at,kind:'return',source,before,after:snapshot(p)});
@@ -189,7 +198,7 @@ window.Tecma = (() => {
   }
   async function logScan(loadId,numero,kind,source){return db.transaction('rw',db.loads,db.events,async()=>{await assertOpen(loadId);await db.events.add({id:uid(),loadId,numero,kind,source,at:now()});});}
   async function undoScan(loadId){
-    return db.transaction('rw',db.loads,db.products,db.events,async()=>{
+    return db.transaction('rw',db.loads,db.products,db.events,db.catalog,async()=>{
       await assertOpen(loadId);
       const events=(await db.events.where('loadId').equals(loadId).toArray()).filter(e=>e.kind==='scan'&&!e.undone).sort((a,b)=>b.at.localeCompare(a.at));
       for(const e of events){
@@ -213,13 +222,20 @@ window.Tecma = (() => {
     });
   }
   async function deleteAccessory(id){return db.transaction('rw',db.loads,db.accessories,db.events,async()=>{const a=await db.accessories.get(id);if(!a)return;await assertOpen(a.loadId);await db.accessories.delete(id);await db.events.add({id:uid(),loadId:a.loadId,at:now(),kind:'accessory-delete',accessoryId:id,before:a});});}
-  async function setClosed(loadId,closed){return db.transaction('rw',db.loads,db.events,async()=>{const l=await db.loads.get(loadId);if(!l)throw new Error('No se encontró la carga.');const at=now();await db.loads.update(loadId,{status:closed?'closed':'open',closedAt:closed?at:null,updatedAt:at});await db.events.add({id:uid(),loadId,at,kind:closed?'close':'reopen'});});}
-  async function deleteLoad(id){return db.transaction('rw',txTables,async()=>{for(const table of [db.works,db.products,db.accessories,db.events])await table.where('loadId').equals(id).delete();await db.loads.delete(id);await db.meta.delete(`draft:${id}`);});}
-  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:2,exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:await db.meta.where('key').startsWith('draft:').toArray()}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
+  async function setClosed(loadId,closed){return db.transaction('rw',db.loads,db.events,async()=>{const l=editable(await db.loads.get(loadId));const at=now();await db.loads.update(loadId,{status:closed?'closed':'open',closedAt:closed?at:null,updatedAt:at});await db.events.add({id:uid(),loadId,at,kind:closed?'close':'reopen'});});}
+  async function deleteLoad(id){return db.transaction('rw',txTables,async()=>{editable(await db.loads.get(id));for(const table of [db.works,db.products,db.accessories,db.events])await table.where('loadId').equals(id).delete();await db.loads.delete(id);await db.meta.delete(`draft:${id}`);});}
+  async function backup(){const local=await db.transaction('r',txTables,async()=>({app:'tecma-despachos',version:3,projects:await db.projects.toArray(),catalog:await db.catalog.toArray(),exportedAt:now(),loads:await db.loads.toArray(),works:await db.works.toArray(),products:await db.products.toArray(),accessories:await db.accessories.toArray(),events:await db.events.toArray(),drafts:await db.meta.where('key').startsWith('draft:').toArray()}));local.control=window.TecmaControl?await TecmaControl.backup():null;return local;}
   function validateBackup(b){
     const fail=()=>{throw new Error('El respaldo no es válido o está incompleto. No se cambió ningún dato.');};
-    if(!b||b.app!=='tecma-despachos'||![1,2].includes(b.version))fail();
+    if(!b||b.app!=='tecma-despachos'||![1,2,3].includes(b.version))fail();
     for(const name of ['loads','works','products','accessories','events']){if(!Array.isArray(b[name]))fail();const ids=new Set();for(const row of b[name]){if(!row||typeof row.id!=='string'||!row.id||ids.has(row.id))fail();ids.add(row.id);}}
+    if(b.version===3){
+      if(!Array.isArray(b.projects)||!Array.isArray(b.catalog))fail();const ids=new Set();
+      for(const p of b.projects){if(typeof p.id!=='string'||ids.has(p.id)||typeof p.obra!=='string'||typeof p.op!=='string'||p.key!==workKey(p.obra,p.op)||!Number.isFinite(Date.parse(p.createdAt))||!Array.isArray(p.format?.headers)||!p.format.columns||![';',','].includes(p.format.delimiter))fail();ids.add(p.id);}
+      const nums=new Set(),catalogIds=new Set();for(const p of b.catalog){const k=JSON.stringify([p.projectId,p.numero]);if(!ids.has(p.projectId)||!/^\d{6}$/.test(p.numero)||nums.has(k)||typeof p.id!=='string'||catalogIds.has(p.id)||!['tipo','orden','detalle','description'].every(k=>typeof p[k]==='string'))fail();nums.add(k);catalogIds.add(p.id);}
+      const loads=new Map(b.loads.map(l=>[l.id,l])),dispatchCodes=new Set();for(const l of b.loads)if(l.model==='obra-v1'&&!ids.has(l.projectId))fail();
+      for(const p of b.products){const l=loads.get(p.loadId);if(p.projectId&&!ids.has(p.projectId))fail();if(l?.model==='obra-v1'){const key=JSON.stringify([p.loadId,p.numero]);if(p.projectId!==l.projectId||dispatchCodes.has(key))fail();dispatchCodes.add(key);}}
+    }
     const validDate=v=>typeof v==='string'&&Number.isFinite(Date.parse(v));
     const strings=(o,keys)=>keys.every(k=>typeof o[k]==='string');
     const loads=new Map(b.loads.map(l=>[l.id,l])),works=new Map(b.works.map(w=>[w.id,w])),products=new Map(b.products.map(p=>[p.id,p]));
@@ -243,10 +259,10 @@ window.Tecma = (() => {
     return b;
   }
   async function restoreBackup(input){
-    const b=validateBackup(structuredClone(input)),maps={};for(const p of b.products)migrateProduct(p);for(const ev of b.events)for(const k of ['before','after'])if(ev[k]?.status==='no enviado')migrateProduct(ev[k]);if(b.control&&window.TecmaControl)TecmaControl.validateBackup(b.control);for(const name of ['loads','works','products','accessories','events'])maps[name]=new Map(b[name].map(r=>[r.id,uid()]));
-    const remap=r=>{if(!r||typeof r!=='object')return r;if(Array.isArray(r))return r.map(remap);const out={};for(const[k,v]of Object.entries(r)){if(['__proto__','constructor','prototype'].includes(k))continue;const table={loadId:'loads',workId:'works',productId:'products',accessoryId:'accessories',lastEvent:'events',undoes:'events',toLoadId:'loads'}[k];out[k]=table?(maps[table].get(v)||null):remap(v);}return out;};
+    const b=validateBackup(structuredClone(input)),maps={};for(const p of b.products)migrateProduct(p);for(const ev of b.events)for(const k of ['before','after'])if(ev[k]?.status==='no enviado')migrateProduct(ev[k]);if(b.control&&window.TecmaControl)TecmaControl.validateBackup(b.control);for(const name of ['loads','works','products','accessories','events','projects','catalog'])maps[name]=new Map((b[name]||[]).map(r=>[r.id,uid()]));
+    const remap=r=>{if(!r||typeof r!=='object')return r;if(Array.isArray(r))return r.map(remap);const out={};for(const[k,v]of Object.entries(r)){if(['__proto__','constructor','prototype'].includes(k))continue;const table={loadId:'loads',workId:'works',productId:'products',accessoryId:'accessories',catalogId:'catalog',lastEvent:'events',undoes:'events',toLoadId:'loads',projectId:'projects'}[k];out[k]=table?(maps[table].get(v)||null):remap(v);}return out;};
     const controlCopy=b.control&&window.TecmaControl?await TecmaControl.restoreBackup(b.control):null;
-    try{await db.transaction('rw',txTables,async()=>{for(const name of ['loads','works','products','accessories','events']){const rows=b[name].map(r=>({...remap(r),...(name==='loads'?{sourceId:r.sourceId||r.id}:{}),id:maps[name].get(r.id)}));if(rows.length)await db[name].bulkAdd(rows);}
+    try{await db.transaction('rw',txTables,async()=>{for(const name of ['loads','works','products','accessories','events','projects','catalog']){const rows=(b[name]||[]).map(r=>({...remap(r),...(['loads','projects','accessories','events'].includes(name)?{sourceId:r.sourceId||r.id}:{}),id:maps[name].get(r.id)}));if(rows.length)await db[name].bulkAdd(rows);}
       for(const entry of b.drafts||[]){
         const oldLoad=entry.key.slice(6),mappedLoad=maps.loads.get(oldLoad);
         await db.meta.put({key:mappedLoad?`draft:${mappedLoad}`:`draft:recovered:${uid()}`,value:remap(entry.value)});
@@ -255,5 +271,5 @@ window.Tecma = (() => {
     }catch(err){if(controlCopy)await TecmaControl.removeRestored(controlCopy);throw err;}
     return b.loads.length;
   }
-  return {db,migrateProduct,obraKey,localDate,ofis,ofiLabel,loadName,firstWork,carryCandidates,previousDispatch,returnProduct,scanUnknown,uid,now,clean,plain,normalizeNumber,natural,date,time,dateKey,esc,workKey,parseCSV,readCSV,assertOpen,commitDraft,loadData,counts,changeProduct,scanProduct,logScan,undoScan,saveAccessory,deleteAccessory,setClosed,deleteLoad,backup,validateBackup,restoreBackup};
+  return {db,editable,migrateProduct,obraKey,localDate,ofis,ofiLabel,loadName,firstWork,carryCandidates,previousDispatch,returnProduct,scanUnknown,uid,now,clean,plain,normalizeNumber,natural,date,time,dateKey,esc,workKey,parseCSV,readCSV,assertOpen,commitDraft,loadData,counts,changeProduct,scanProduct,logScan,undoScan,saveAccessory,deleteAccessory,setClosed,deleteLoad,backup,validateBackup,restoreBackup};
 })();

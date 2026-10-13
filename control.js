@@ -3,7 +3,8 @@
 window.TecmaControl=(()=>{
   const T=Tecma,db=new Dexie('TecmaControl_v1',{chromeTransactionDurability:'strict'});
   db.version(1).stores({projects:'id,key,createdAt',products:'id,projectId,[projectId+numero]',events:'id,projectId,productId,at,[projectId+sourceKey]',accessories:'id,projectId,[projectId+sourceKey]'});
-  const tables=[db.projects,db.products,db.events,db.accessories];
+  db.version(2).stores({records:'id,projectId,[projectId+origin]'});
+  const tables=[db.projects,db.products,db.events,db.accessories,db.records];
   const statuses=['pendiente en fábrica','en obra','devuelto'];
   const projectName=project=>T.clean(project.displayName)||project.obra;
   const opKey=value=>T.plain(value).replace(/\s+/g,' ');
@@ -21,7 +22,7 @@ window.TecmaControl=(()=>{
   async function deleteProject(id){
     await db.transaction('rw',tables,async()=>{
       if(!await db.projects.get(id))throw new Error('No se encontró la obra.');
-      for(const table of [db.products,db.events,db.accessories])await table.where('projectId').equals(id).delete();
+      for(const table of [db.products,db.events,db.accessories,db.records])await table.where('projectId').equals(id).delete();
       await db.projects.delete(id);
     });
   }
@@ -128,7 +129,7 @@ window.TecmaControl=(()=>{
   }
   async function importClosure(projectId,input){
     const c=validateClosure(input),project=await db.projects.get(projectId);
-    const works=new Map(c.works.filter(w=>T.obraKey(w.obra)===project.key).map(w=>[w.id,w]));
+    const works=new Map(c.works.filter(w=>T.obraKey(w.obra)===project.key&&(opKey(w.op)===opKey(project.op)||opKey(project.op).split(',').map(x=>x.trim()).includes(opKey(w.op)))).map(w=>[w.id,w]));
     if(!works.size)throw new Error(`El cierre es de otra obra. Obra abierta: ${project.obra}.`);
     const origin=c.load.sourceId||c.load.id;let added=0,ignored=0;
     await db.transaction('rw',tables,async()=>{
@@ -140,7 +141,7 @@ window.TecmaControl=(()=>{
         const shared={projectId,productId:p.id,sourceLoad:origin,loadName:c.load.name||c.works[0].obra,description:source.description};
         if(source.scannedAt)added+=Number(await addEvent({...shared,kind:'dispatch',at:source.scannedAt,sourceKey:`${origin}:${source.numero}:dispatch:${source.scannedAt}`}));
         if(source.returnedAt)added+=Number(await addEvent({...shared,kind:'return',at:source.returnedAt,sourceKey:`${origin}:${source.numero}:return:${source.returnedAt}`}));
-        const notesByLoad={...(p.notesByLoad||{}),[origin]:T.clean(source.note)};await db.products.update(p.id,{notesByLoad,note:[...new Set(Object.values(notesByLoad).filter(Boolean))].join(' · ')});
+        const notesByLoad={...(p.notesByLoad||{}),[origin]:T.clean(source.note)},manualNote=p.manualNote??(!p.notesByLoad?p.note||'':'');await db.products.update(p.id,{notesByLoad,manualNote,note:[...new Set([manualNote,...Object.values(notesByLoad)].filter(Boolean))].join(' · ')});
         await recompute(p.id);
       }
       for(const a of c.accessories.filter(a=>works.has(a.workId))){
@@ -166,32 +167,65 @@ window.TecmaControl=(()=>{
     const q=Number(String(row.quantity||1).replace(',','.'));
     return db.accessories.add({id:T.uid(),projectId,description:T.clean(row.description)||'Material sin identificar',quantity:Number.isFinite(q)&&q>0?q:1,unit:T.clean(row.unit)||'UNI',at:T.localDate(row.date).toISOString(),kind:row.kind==='return'?'return':'dispatch',source:'manual'});
   }
-  function prepareCSV(project,products,ids){
-    const f=project.format,selection=new Set(ids),rows=products.filter(p=>selection.has(p.id)).map(p=>{
-      if(Array.isArray(p.raw)&&p.raw.length===f.headers.length)return p.raw;
-      const row=f.headers.map(()=>''),values={numero:p.numero,op:p.op||project.op,obra:project.obra,orden:p.orden,tipo:p.tipo,detalle:p.description||p.detalle,subfamilia:p.subfamilia,familia:p.familia};
-      for(const [key,value]of Object.entries(values))if(f.columns[key]>=0)row[f.columns[key]]=value||'';
-      const qty=f.headers.findIndex(h=>T.plain(h)==='cantidad');if(qty>=0)row[qty]='1';return row;
-    });
-    const csv=(f.bom?'\uFEFF':'')+(f.sepLine?`sep=${f.delimiter}${f.newline||'\r\n'}`:'')+Papa.unparse([f.headers,...rows],{delimiter:f.delimiter,newline:f.newline||'\r\n'});
-    return {blob:new Blob([csv],{type:'text/csv;charset=utf-8'}),name:`Preparacion_${TecmaReports.safeName(project.obra)}_${T.dateKey(T.now())}.csv`};
+  const defaultFormat={headers:['Numero','N_Obra','Obra','Orden Produccion','Tipo','Detalle Tipo'],columns:{numero:0,op:1,obra:2,orden:3,tipo:4,detalle:5,familia:-1,subfamilia:-1},delimiter:';',newline:'\r\n'};
+  async function registryProject(source){
+    const matches=(await db.projects.where('key').equals(T.obraKey(source.obra)).toArray()).filter(p=>opKey(p.op)===opKey(source.op)).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+    let p=matches.find(p=>(p.registrySources||[]).includes(source.sourceId||source.id))||matches[0];
+    if(!p){p={id:T.uid(),key:T.obraKey(source.obra),obra:source.obra,op:source.op,createdAt:source.createdAt||T.now(),format:source.format||defaultFormat};await db.projects.add(p);}
+    const sources=[...new Set([...(p.registrySources||[]),source.sourceId||source.id])];if(JSON.stringify(sources)!==JSON.stringify(p.registrySources||[]))await db.projects.update(p.id,{registrySources:sources});return p;
   }
-  async function backup(){return db.transaction('r',tables,async()=>({version:1,projects:await db.projects.toArray(),products:await db.products.toArray(),events:await db.events.toArray(),accessories:await db.accessories.toArray()}));}
+  async function importRegistry(input){
+    const r=TecmaObras.validateRegistry(input);let added=0,updated=0;const projectIds=[];
+    await db.transaction('rw',tables,async()=>{
+      for(const source of r.projects){const project=await registryProject(source),projectId=project.id;projectIds.push(projectId);
+        const catalogs=r.catalog.filter(p=>p.projectId===source.id),existing=new Map((await db.products.where('projectId').equals(projectId).toArray()).map(p=>[p.numero,p]));
+        for(const row of catalogs){let p=existing.get(row.numero);const textAt=[source.zebraUpdatedAt,source.createdAt,row.updatedAt,row.createdAt].filter(Boolean).sort().at(-1)||r.exportedAt;
+          if(!p){p={...row,id:T.uid(),projectId,status:'pendiente en fábrica',dispatchDate:null,returnedAt:null,note:'',notesByLoad:{},registryTextAt:textAt};delete p.loadId;delete p.workId;await db.products.add(p);existing.set(p.numero,p);}
+          else if(textAt>(p.registryTextAt||project.zebraUpdatedAt||'')){await db.products.update(p.id,{tipo:row.tipo,description:row.description||row.detalle||'SIN DESCRIPCIÓN',detalle:row.detalle||'',orden:row.orden||'',zebraMissing:!!row.zebraMissing,registryTextAt:textAt});}
+        }
+        for(const load of r.loads.filter(l=>l.projectId===source.id&&l.status==='closed')){
+          const origin=load.sourceId||load.id,products=r.products.filter(p=>p.loadId===load.id),works=r.works.filter(w=>w.loadId===load.id),accessories=r.accessories.filter(a=>a.loadId===load.id),events=r.events.filter(e=>e.loadId===load.id);
+          const payload={load,works,products,accessories,events},signature=JSON.stringify(payload),revisionAt=[load.updatedAt,load.createdAt,...products.map(p=>p.updatedAt),...accessories.map(a=>a.updatedAt),...events.map(e=>e.at)].filter(Boolean).sort().at(-1);
+          const old=await db.records.where('[projectId+origin]').equals([projectId,origin]).first();
+          if(old&&(revisionAt<old.revisionAt||JSON.stringify(old.payload)===signature||revisionAt===old.revisionAt&&r.exportedAt<=old.exportedAt))continue;
+          const beforeEvents=(await db.events.where('projectId').equals(projectId).toArray()).filter(e=>e.registryOrigin===origin),keys=new Set(),affected=new Set(beforeEvents.map(e=>e.productId)),name=T.loadName(load,works,products);
+          for(const row of products){if(!row.scannedAt&&!row.returnedAt)continue;let p=existing.get(row.numero);if(!p){p={...row,id:T.uid(),projectId,status:'pendiente en fábrica',dispatchDate:null,note:''};delete p.loadId;delete p.workId;await db.products.add(p);existing.set(p.numero,p);}
+            affected.add(p.id);
+            for(const [kind,at]of [['dispatch',row.scannedAt],['return',row.returnedAt]])if(at){const sourceKey=JSON.stringify(['registro',origin,row.numero,kind]);keys.add(sourceKey);const event=beforeEvents.find(e=>e.sourceKey===sourceKey);await db.events.put({id:event?.id||T.uid(),projectId,productId:p.id,sourceLoad:origin,registryOrigin:origin,loadName:name,description:row.description,kind,at,sourceKey});if(!event)added++;}
+            const notesByLoad={...(p.notesByLoad||{}),[origin]:T.clean(row.note)},manualNote=p.manualNote??(!p.notesByLoad?p.note||'':'');Object.assign(p,{notesByLoad,manualNote,note:[...new Set([manualNote,...Object.values(notesByLoad)].filter(Boolean))].join(' · ')});await db.products.update(p.id,{notesByLoad,manualNote,note:p.note});
+          }
+          for(const ev of beforeEvents)if(!keys.has(ev.sourceKey))await db.events.delete(ev.id);
+          for(const id of affected)await recompute(id);
+          const previousAccessories=(await db.accessories.where('projectId').equals(projectId).toArray()).filter(a=>a.registryOrigin===origin),accessoryKeys=new Set();
+          for(const a of accessories){const sourceKey=JSON.stringify(['registro',origin,'accessory',a.sourceId||a.id]);accessoryKeys.add(sourceKey);const oldAccessory=previousAccessories.find(x=>x.sourceKey===sourceKey);await db.accessories.put({...a,id:oldAccessory?.id||T.uid(),projectId,sourceKey,registryOrigin:origin,at:load.closedAt||load.createdAt,kind:'dispatch',loadName:name});}
+          for(const a of previousAccessories)if(!accessoryKeys.has(a.sourceKey))await db.accessories.delete(a.id);
+          await db.records.put({id:old?.id||T.uid(),projectId,origin,revisionAt,exportedAt:r.exportedAt,payload});updated++;
+        }
+      }
+    });return {added,updated,projectIds:[...new Set(projectIds)]};
+  }
+  async function importAny(input,projectId){
+    if(input?.app==='tecma-registro')return importRegistry(input);
+    const c=validateClosure(input);if(projectId)return importClosure(projectId,c);
+    return db.transaction('rw',tables,async()=>{let added=0;const ids=[];for(const work of c.works){const p=await registryProject({...work,sourceId:'legacy:'+T.workKey(work.obra,work.op)});if(ids.includes(p.id))continue;ids.push(p.id);const result=await importClosure(p.id,{...c,works:c.works.filter(w=>T.workKey(w.obra,w.op)===T.workKey(work.obra,work.op)),products:c.products.filter(x=>c.works.some(w=>w.id===x.workId&&T.workKey(w.obra,w.op)===T.workKey(work.obra,work.op))),accessories:c.accessories.filter(x=>c.works.some(w=>w.id===x.workId&&T.workKey(w.obra,w.op)===T.workKey(work.obra,work.op)))});added+=result.added;}return {added,projectIds:ids};});
+  }
+  async function backup(){return db.transaction('r',tables,async()=>({version:2,records:await db.records.toArray(),projects:await db.projects.toArray(),products:await db.products.toArray(),events:await db.events.toArray(),accessories:await db.accessories.toArray()}));}
   function validateBackup(b){
-    const fail=()=>{throw new Error('Los datos de Control del respaldo están incompletos.');};if(b?.version!==1)fail();
+    const fail=()=>{throw new Error('Los datos de Control del respaldo están incompletos.');};if(![1,2].includes(b?.version))fail();if(b.version===2&&!Array.isArray(b.records))fail();
     for(const name of ['projects','products','events','accessories']){if(!Array.isArray(b[name]))fail();const ids=new Set();for(const r of b[name]){if(typeof r.id!=='string'||ids.has(r.id))fail();ids.add(r.id);}}
     const projects=new Set(b.projects.map(p=>p.id)),products=new Map(b.products.map(p=>[p.id,p]));
     for(const p of b.projects)if(typeof p.obra!=='string'||!Array.isArray(p.format?.headers)||![';',','].includes(p.format.delimiter)||!p.format.columns)fail();
     for(const p of b.products)if(!projects.has(p.projectId)||!/^\d{6}$/.test(p.numero)||!statuses.includes(p.status))fail();
     for(const ev of b.events)if(products.get(ev.productId)?.projectId!==ev.projectId||!Number.isFinite(Date.parse(ev.at)))fail();
+    const recordIds=new Set(),origins=new Set();for(const r of b.records||[]){const key=JSON.stringify([r.projectId,r.origin]);if(typeof r.id!=='string'||recordIds.has(r.id)||origins.has(key)||!projects.has(r.projectId)||typeof r.origin!=='string'||!Number.isFinite(Date.parse(r.revisionAt)))fail();recordIds.add(r.id);origins.add(key);}
     for(const a of b.accessories)if(!projects.has(a.projectId)||!Number.isFinite(a.quantity)||a.quantity<=0||!Number.isFinite(Date.parse(a.at)))fail();return b;
   }
   async function restoreBackup(b){
     validateBackup(b);const projectIds=new Map(b.projects.map(p=>[p.id,T.uid()])),productIds=new Map(b.products.map(p=>[p.id,T.uid()]));
-    await db.transaction('rw',tables,async()=>{for(const name of ['projects','products','events','accessories']){
-      const rows=b[name].map(p=>({...p,id:name==='projects'?projectIds.get(p.id):name==='products'?productIds.get(p.id):T.uid(),...(p.projectId?{projectId:projectIds.get(p.projectId)}:{}),...(p.productId?{productId:productIds.get(p.productId)}:{})}));if(rows.length)await db[name].bulkAdd(rows);
+    await db.transaction('rw',tables,async()=>{for(const name of ['projects','products','events','accessories','records']){
+      const rows=(b[name]||[]).map(p=>({...p,id:name==='projects'?projectIds.get(p.id):name==='products'?productIds.get(p.id):T.uid(),...(p.projectId?{projectId:projectIds.get(p.projectId)}:{}),...(p.productId?{productId:productIds.get(p.productId)}:{})}));if(rows.length)await db[name].bulkAdd(rows);
     }});return [...projectIds.values()];
   }
-  async function removeRestored(ids){await db.transaction('rw',tables,async()=>{for(const id of ids){for(const table of [db.products,db.events,db.accessories])await table.where('projectId').equals(id).delete();await db.projects.delete(id);}});}
-  return {db,statuses,projectName,listProjects,renameProject,deleteProject,createProject,data,previewZebra,applyZebra,importClosure,validateClosure,mark,markNumbers,accessory,prepareCSV,backup,validateBackup,restoreBackup,removeRestored};
+  async function removeRestored(ids){await db.transaction('rw',tables,async()=>{for(const id of ids){for(const table of [db.products,db.events,db.accessories,db.records])await table.where('projectId').equals(id).delete();await db.projects.delete(id);}});}
+  return {db,statuses,projectName,listProjects,renameProject,deleteProject,createProject,data,previewZebra,applyZebra,importClosure,validateClosure,mark,markNumbers,accessory,importRegistry,importAny,backup,validateBackup,restoreBackup,removeRestored};
 })();
